@@ -339,3 +339,41 @@ func TestVerifyRemoteSigner(t *testing.T) {
 		walletcore.ErrWrongRemoteSigner,
 	)
 }
+
+// TestValidateWalletSource pins which creation inputs combine: a bundle
+// creates a remote-signing wallet, needs a signer, and never mixes with a
+// seed or root key; a signer alone opens an existing watch-only wallet.
+func TestValidateWalletSource(t *testing.T) {
+	t.Parallel()
+
+	params := &chaincfg.RegressionNetParams
+	bundle := &walletdesc.WatchOnlyBundle{}
+	remote := &walletcore.RemoteSignerConfig{}
+
+	create, err := walletcore.ValidateWalletSource(
+		nil, nil, bundle, remote, params,
+	)
+	require.NoError(t, err)
+	require.True(t, create)
+
+	create, err = walletcore.ValidateWalletSource(
+		nil, nil, nil, remote, params,
+	)
+	require.NoError(t, err)
+	require.False(t, create)
+
+	_, err = walletcore.ValidateWalletSource(
+		testSeed(), nil, bundle, remote, params,
+	)
+	require.ErrorIs(t, err, walletcore.ErrBundleAndSeed)
+
+	_, err = walletcore.ValidateWalletSource(
+		nil, nil, bundle, nil, params,
+	)
+	require.ErrorContains(t, err, "needs a remote signer")
+
+	_, err = walletcore.ValidateWalletSource(
+		testSeed(), nil, nil, remote, params,
+	)
+	require.ErrorContains(t, err, "created from a watch-only bundle")
+}

@@ -6,6 +6,7 @@ import (
 
 	"github.com/btcsuite/btcd/btcutil/v2/hdkeychain"
 	"github.com/btcsuite/btcd/chaincfg/v2"
+	"github.com/lightninglabs/wavelength/walletdesc"
 	"github.com/lightningnetwork/lnd/blockcache"
 	"github.com/lightningnetwork/lnd/lnwallet/btcwallet"
 )
@@ -107,4 +108,34 @@ func NewBtcWallet(cfg btcwallet.Config, rootKey *hdkeychain.ExtendedKey,
 	}
 
 	return btcw, nil
+}
+
+// ValidateWalletSource extends ValidateCreateInput with the watch-only
+// inputs: a bundle of account public keys creates a database like a seed
+// does, and a remote signer config makes the wallet watch-only. It reports
+// whether a new database is to be created. A bundle needs a remote signer,
+// and a remote-signing wallet is only ever created from a bundle.
+func ValidateWalletSource(seed []byte, rootKey *hdkeychain.ExtendedKey,
+	bundle *walletdesc.WatchOnlyBundle, remote *RemoteSignerConfig,
+	params *chaincfg.Params) (bool, error) {
+
+	create, err := ValidateCreateInput(seed, rootKey, params)
+	if err != nil {
+		return false, err
+	}
+
+	switch {
+	case bundle != nil && create:
+		return false, ErrBundleAndSeed
+
+	case bundle != nil && remote == nil:
+		return false, errors.New("a watch-only bundle needs a remote " +
+			"signer")
+
+	case create && remote != nil:
+		return false, errors.New("a remote-signing wallet is created " +
+			"from a watch-only bundle, not a seed or root key")
+	}
+
+	return create || bundle != nil, nil
 }

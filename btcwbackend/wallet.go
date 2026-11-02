@@ -91,8 +91,9 @@ func checkWalletInvariants(cfg Config) error {
 		return fmt.Errorf("wallet password is required")
 	}
 
-	create, err := walletcore.ValidateCreateInput(
-		cfg.Seed, cfg.RootKey, cfg.ChainParams,
+	create, err := walletcore.ValidateWalletSource(
+		cfg.Seed, cfg.RootKey, cfg.WatchOnly, cfg.RemoteSigner,
+		cfg.ChainParams,
 	)
 	if err != nil {
 		return err
@@ -105,12 +106,13 @@ func checkWalletInvariants(cfg Config) error {
 
 	switch {
 	case !create && !exists:
-		return fmt.Errorf("%w in %q: create the wallet with a seed or "+
-			"root key first", ErrWalletNotFound, cfg.DBDir)
+		return fmt.Errorf("%w in %q: create the wallet with a seed, "+
+			"root key or watch-only bundle first",
+			ErrWalletNotFound, cfg.DBDir)
 
 	case create && exists:
-		return fmt.Errorf("%w in %q: open it without a seed or root "+
-			"key instead", ErrWalletExists, cfg.DBDir)
+		return fmt.Errorf("%w in %q: open it without a seed, root key "+
+			"or bundle instead", ErrWalletExists, cfg.DBDir)
 	}
 
 	return nil
@@ -184,7 +186,7 @@ func NewWithNeutrino(cfg Config,
 	coinType := walletcore.CoinTypeForNet(cfg.ChainParams)
 	blockCache := neutrinoSvc.BlockCache()
 
-	btcw, err := walletcore.NewBtcWallet(btcwallet.Config{
+	btcwCfg := btcwallet.Config{
 		PrivatePass:    cfg.WalletPassword,
 		PublicPass:     walletcore.PublicWalletPassphrase,
 		HdSeed:         cfg.Seed,
@@ -198,15 +200,46 @@ func NewWithNeutrino(cfg Config,
 				cfg.DBDir, false, 60*time.Second,
 			),
 		},
-	}, cfg.RootKey, blockCache)
-	if err != nil {
-		return nil, fmt.Errorf("create btcwallet: %w", err)
 	}
 
-	// Create the keyring from btcwallet's internal wallet.
-	keyRing := keychain.NewBtcWalletKeyRing(
-		btcw.InternalWallet(), coinType,
-	)
+	core := walletcore.Wallet{
+		ChainParams: cfg.ChainParams,
+		WalletLog:   cfg.Log,
+	}
+	if cfg.RemoteSigner != nil {
+		// A watch-only wallet has no private passphrase, so the
+		// user's password protects its public data instead.
+		btcwCfg.PublicPass = cfg.WalletPassword
+		remote, err := walletcore.OpenRemoteSigning(
+			context.Background(), btcwCfg, cfg.WatchOnly,
+			*cfg.RemoteSigner, blockCache,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("open remote-signing wallet: %w",
+				err)
+		}
+
+		core.Signer = remote.KeyRing
+		core.BtcWallet = remote.BtcWallet
+		core.Controller = remote.KeyRing
+		core.KeyRing = remote.KeyRing
+		core.RemoteSigner = remote.Conn
+	} else {
+		btcw, err := walletcore.NewBtcWallet(
+			btcwCfg, cfg.RootKey, blockCache,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("create btcwallet: %w", err)
+		}
+
+		core.Signer = btcw
+		core.BtcWallet = btcw
+		core.Controller = btcw
+		core.KeyRing = keychain.NewBtcWalletKeyRing(
+			btcw.InternalWallet(), coinType,
+		)
+	}
+	btcw := core.BtcWallet
 
 	// Create the chain backend with neutrino notifier and fee
 	// estimation.
@@ -221,6 +254,7 @@ func NewWithNeutrino(cfg Config,
 		// lock stays held and every retry wedges on the loader
 		// timeout.
 		_ = btcw.Stop()
+		core.StopRemoteSigner()
 		dbErr := btcw.InternalWallet().Database().Close()
 		if dbErr != nil {
 			walletLog.WarnS(
@@ -244,17 +278,11 @@ func NewWithNeutrino(cfg Config,
 		slog.String("db_dir", cfg.DBDir),
 		slog.String("neutrino_dir", neutrinoDataDir),
 		slog.Uint64("coin_type", uint64(coinType)),
+		slog.Bool("watch_only", core.WatchOnly()),
 	)
 
 	return &Wallet{
-		Wallet: walletcore.Wallet{
-			Signer:      btcw,
-			BtcWallet:   btcw,
-			Controller:  btcw,
-			KeyRing:     keyRing,
-			ChainParams: cfg.ChainParams,
-			WalletLog:   cfg.Log,
-		},
+		Wallet:          core,
 		neutrinoSvc:     neutrinoSvc,
 		chainBackend:    chainBackend,
 		boardingBackend: boardingBackend,
@@ -283,9 +311,20 @@ func (w *Wallet) Start() error {
 	// btcWallet.Start() unlocks the wallet, creates key scopes,
 	// starts the chain client, and begins wallet synchronization.
 	if err := w.BtcWallet.Start(); err != nil {
+		w.StopRemoteSigner()
 		closeDB()
 
 		return fmt.Errorf("start btcwallet: %w", err)
+	}
+
+	// A remote-signing wallet must be talking to the signer that holds
+	// its keys before anything signs.
+	if err := w.Wallet.VerifyRemoteSigner(); err != nil {
+		_ = w.BtcWallet.Stop()
+		w.StopRemoteSigner()
+		closeDB()
+
+		return fmt.Errorf("verify remote signer: %w", err)
 	}
 
 	// Start the chain backend. This is idempotent (sync.Once) so
@@ -293,6 +332,7 @@ func (w *Wallet) Start() error {
 	// Start().
 	if err := w.chainBackend.Start(); err != nil {
 		_ = w.BtcWallet.Stop()
+		w.StopRemoteSigner()
 		closeDB()
 
 		return fmt.Errorf("start chain backend: %w", err)
@@ -322,6 +362,7 @@ func (w *Wallet) Stop() {
 	if err := w.BtcWallet.InternalWallet().Database().Close(); err != nil {
 		w.Logger(ctx).WarnS(ctx, "Failed to close btcwallet DB", err)
 	}
+	w.StopRemoteSigner()
 
 	if w.ownsNeutrino {
 		_ = w.neutrinoSvc.Stop()

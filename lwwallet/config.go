@@ -6,6 +6,8 @@ import (
 	"github.com/btcsuite/btcd/btcutil/v2/hdkeychain"
 	"github.com/btcsuite/btcd/chaincfg/v2"
 	"github.com/btcsuite/btclog/v2"
+	"github.com/lightninglabs/wavelength/walletcore"
+	"github.com/lightninglabs/wavelength/walletdesc"
 	fn "github.com/lightningnetwork/lnd/fn/v2"
 )
 
@@ -28,6 +30,18 @@ type Config struct {
 	// descriptors. At most one of Seed and RootKey may be set; see
 	// walletcore.Config.RootKey.
 	RootKey *hdkeychain.ExtendedKey
+
+	// WatchOnly is the account public keys to create a watch-only
+	// wallet from, instead of a seed or root key. It requires
+	// RemoteSigner and, like Seed, must be unset when opening an
+	// existing database.
+	WatchOnly *walletdesc.WatchOnlyBundle
+
+	// RemoteSigner, when set, runs the wallet watch-only: the database
+	// holds only account public keys and every signature is requested
+	// from this signer. WalletPassword then encrypts the database's
+	// public data instead, since there is no private passphrase.
+	RemoteSigner *walletcore.RemoteSignerConfig
 
 	// WalletPassword is the private passphrase that encrypts the
 	// wallet database's key material (btcwallet's PrivatePass). It

@@ -88,9 +88,15 @@ base logic with the neutrino-backed `btcwbackend` sibling via the extracted
 
 ## Invariants
 
-- `Config` takes either a seed or a BIP32 master `RootKey` to create a new
-  database, never both, and neither when opening; both go through
-  `walletcore.ValidateCreateInput` and `walletcore.NewBtcWallet`.
+- `Config` takes a seed, a BIP32 master `RootKey` or a `WatchOnly` bundle
+  to create a new database, at most one, and none when opening; all go
+  through `walletcore.ValidateWalletSource`.
+- With `RemoteSigner` set the wallet is watch-only
+  (`walletcore.OpenRemoteSigning`): the RPC key ring is its `Signer`,
+  `KeyRing` and `Controller`, the user's password is btcwallet's public
+  passphrase, and `Start` refuses to finish until the signer has signed a
+  challenge with the identity key the imported xpubs imply. The signer
+  connection closes on `Stop` and on any failed start.
 - Exactly one `TipPoller` goroutine drives both `EsploraChainService` and
   `ChainBackend`; neither polls Esplora independently.
 - `BestBlockAndSubscribe` holds `TipPoller.mu` across `{Subscribe + tip-read}`

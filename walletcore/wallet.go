@@ -2,6 +2,7 @@ package walletcore
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 
@@ -17,6 +18,7 @@ import (
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/btcwallet"
+	"github.com/lightningnetwork/lnd/lnwallet/rpcwallet"
 )
 
 // Wallet provides shared btcwallet-backed functionality used by both
@@ -52,6 +54,12 @@ type Wallet struct {
 
 	// ChainParams identifies the Bitcoin network.
 	ChainParams *chaincfg.Params
+
+	// RemoteSigner is the connection to the remote signer that holds
+	// this wallet's private keys, or nil for a wallet that holds its
+	// own. When set, Signer, KeyRing and Controller all sign through it
+	// and BtcWallet is watch-only.
+	RemoteSigner rpcwallet.RemoteSignerConnection
 
 	// WalletLog is an optional logger for this wallet instance.
 	WalletLog fn.Option[btclog.Logger]
@@ -195,4 +203,33 @@ func (w *Wallet) ListUnspentWitness(minConfs, maxConfs int32) ([]*lnwallet.Utxo,
 // wallet-owned keys.
 func (w *Wallet) GetKeyRing() keychain.SecretKeyRing {
 	return w.KeyRing
+}
+
+// WatchOnly reports whether the wallet's private keys live on a remote
+// signer.
+func (w *Wallet) WatchOnly() bool {
+	return w.RemoteSigner != nil
+}
+
+// VerifyRemoteSigner checks, for a remote-signing wallet, that the signer
+// holds the identity key the wallet's account public keys imply. It is a
+// no-op for a wallet that holds its own keys.
+func (w *Wallet) VerifyRemoteSigner() error {
+	if w.RemoteSigner == nil {
+		return nil
+	}
+
+	ring, ok := w.KeyRing.(RemoteKeyRing)
+	if !ok {
+		return errors.New("remote-signing wallet has a local key ring")
+	}
+
+	return VerifyRemoteSigner(ring)
+}
+
+// StopRemoteSigner closes the remote signer connection, if any.
+func (w *Wallet) StopRemoteSigner() {
+	if w.RemoteSigner != nil {
+		w.RemoteSigner.Stop()
+	}
 }

@@ -22,9 +22,11 @@ or LND node.
 
 ## Invariants
 
-- `Config` takes either a seed or a BIP32 master `RootKey` to create a new
-  database, never both, and neither when opening; both go through
-  `walletcore.ValidateCreateInput` and `walletcore.NewBtcWallet`.
+- `Config` takes a seed, a BIP32 master `RootKey` or a `WatchOnly` bundle
+  to create a new database, at most one, and none when opening; all go
+  through `walletcore.ValidateWalletSource`. With `RemoteSigner` set the
+  wallet is watch-only and signs through the remote signer, exactly as
+  `lwwallet` does, and `Start` verifies the signer before returning.
 - `NewWithNeutrino` does not own the neutrino service lifecycle; the caller is responsible for stopping it. `New` owns the service and stops it on error or via `Wallet.Stop()`.
 - Chain notifier cancel functions are wrapped in `sync.Once` to prevent double-cancel panics from lnd's notificationDispatcher.
 - `SubmitPackage` requires a configured direct package submitter. Individual

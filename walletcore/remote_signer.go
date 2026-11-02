@@ -1,6 +1,7 @@
 package walletcore
 
 import (
+	"context"
 	"crypto/rand"
 	"errors"
 	"fmt"
@@ -9,6 +10,8 @@ import (
 	"github.com/btcsuite/btcd/chaincfg/v2"
 	"github.com/btcsuite/btcd/chainhash/v2"
 	"github.com/lightninglabs/wavelength/lib/keyfamily"
+	"github.com/lightninglabs/wavelength/walletdesc"
+	"github.com/lightningnetwork/lnd/blockcache"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnwallet"
@@ -146,4 +149,60 @@ func VerifyRemoteSigner(ring RemoteKeyRing) error {
 	}
 
 	return nil
+}
+
+// RemoteSigning is a watch-only wallet with the remote key ring in front of
+// it and the signer connection both use.
+type RemoteSigning struct {
+	// BtcWallet tracks the chain and derives public keys.
+	BtcWallet *btcwallet.BtcWallet
+
+	// KeyRing signs through the remote signer. It is the wallet's
+	// Signer, KeyRing and Controller.
+	KeyRing RemoteKeyRing
+
+	// Conn is the signer connection; Stop closes it.
+	Conn rpcwallet.RemoteSignerConnection
+}
+
+// OpenRemoteSigning creates (with a bundle) or opens (without one) the
+// watch-only btcwallet described by cfg, connects to the remote signer and
+// builds the key ring over both. cfg.PublicPass must be the user's wallet
+// password. On error nothing is left open.
+func OpenRemoteSigning(ctx context.Context, cfg btcwallet.Config,
+	bundle *walletdesc.WatchOnlyBundle, remote RemoteSignerConfig,
+	blockCache *blockcache.BlockCache) (*RemoteSigning, error) {
+
+	if err := remote.Validate(); err != nil {
+		return nil, err
+	}
+
+	btcw, err := NewWatchOnlyBtcWallet(cfg, bundle, blockCache)
+	if err != nil {
+		return nil, err
+	}
+
+	dialCtx, cancel := context.WithTimeout(ctx, remote.Timeout)
+	defer cancel()
+
+	conn, err := DialRemoteSigner(dialCtx, remote)
+	if err != nil {
+		_ = btcw.InternalWallet().Database().Close()
+
+		return nil, err
+	}
+
+	ring, err := NewRemoteKeyRing(btcw, cfg.CoinType, conn, cfg.NetParams)
+	if err != nil {
+		conn.Stop()
+		_ = btcw.InternalWallet().Database().Close()
+
+		return nil, err
+	}
+
+	return &RemoteSigning{
+		BtcWallet: btcw,
+		KeyRing:   ring,
+		Conn:      conn,
+	}, nil
 }
