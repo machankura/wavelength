@@ -70,8 +70,16 @@ VTXOs.
   root-key wallet yields the same identity and first taproot address as the
   seed wallet and obeys the create/open invariants. `js/wasm` builds of
   `lwwallet` and `walletcore` compile.
-- [ ] Milestone 3: daemon RPC, CLI and swap-wallet admin surface for
-  descriptor import.
+- [x] (2026-11-02) Milestone 3: daemon RPC, CLI and swap-wallet admin
+  surface for descriptor import. Proto fields added and regenerated with
+  `make rpc`; `InitWallet` validates the source before claiming state;
+  `swapwallet` forwards descriptors; `wavecli create --descriptor-file
+  --birthday`. Unit tests cover the handler's early rejection and rollback,
+  equivalence of the mnemonic and descriptor preparation paths, the swap
+  wallet forwarding, and every CLI flag conflict. Remaining: the
+  live-daemon acceptance run, folded into Milestone 4's system test.
+  Deferred to Milestone 4: persisting the root fingerprint, which only
+  export needs.
 - [ ] Milestone 4: descriptor export (`ListWalletDescriptors`,
   `wavecli wallet descriptors`) and the end-to-end round-trip test.
 - [ ] Milestone 5: Go embedding SDK and gomobile bridge.
@@ -152,6 +160,23 @@ VTXOs.
   descriptors, not as a ranged template (Milestone W6). An earlier
   conversational sketch used `and_v(v:pk(..),older(..))` for the exit leaf
   and would have described the wrong address.
+
+- Observation (Milestone 3): `hdkeychain.ExtendedKey.Neuter` returns a key
+  that shares its chain-code and public-key byte slices with the private
+  key, so calling `Zero` on the private key afterwards also wipes the public
+  key. The first `walletdesc` release rendered account xpubs with a zeroed
+  chain code, and Bitcoin Core refused them ("key ... is not valid"). The
+  original unit test compared against the same aliased helper, so it did not
+  catch this. Fixed by re-parsing the serialization (`independentPublic`),
+  with a test against an independent derivation that fails before the fix.
+  A cross-check against Bitcoin Core 31.1 (regtest) on a root-key `lwwallet`
+  then showed agreement on both checksums and the first address for both
+  script types:
+
+      tr pub: checksum match=True
+      tr pub: Core index 0 == wallet first address: True (bcrt1pge4k5cjurqpq350ntvzpkvpnpvp27qxge6y5tsqu9h2f2qdfcjtqmprkn7)
+      wpkh pub: checksum match=True
+      wpkh pub: Core index 0 == wallet first address: True (bcrt1qw4ac9ct90eyh5cq5446yqnccq3x0dfyd2py94h)
 
 - Observation: no descriptor parser exists anywhere in the module graph
   (`grep -i 'descriptor\|miniscript' go.sum` is empty) and btcwallet has no
