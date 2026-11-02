@@ -40,6 +40,17 @@ service DaemonService {
     rpc ListWalletDescriptors (ListWalletDescriptorsRequest)
         returns (ListWalletDescriptorsResponse);
 
+    // ListArkOutputDescriptors returns one rawtr() output descriptor for
+    // every Ark output the wallet knows about: boarding outputs, live VTXOs
+    // (which reach the chain on a unilateral exit) and out-of-round receive
+    // scripts. The descriptors let external watch-only software track these
+    // outputs on chain. They are read straight from the stored output
+    // scripts, so they are exact, but they describe outputs only: spending
+    // still needs Wavelength or the operator, because no external wallet can
+    // build the Ark leaf witness from a rawtr() descriptor.
+    rpc ListArkOutputDescriptors (ListArkOutputDescriptorsRequest)
+        returns (ListArkOutputDescriptorsResponse);
+
     // GetBalance returns the current balance of the wallet, broken down
     // by boarding (on-chain) and VTXO (off-chain) balances.
     rpc GetBalance (GetBalanceRequest) returns (GetBalanceResponse);
@@ -590,6 +601,54 @@ message ListWalletDescriptorsResponse {
 
     // includes_private reports whether descriptors contain private keys.
     bool includes_private = 3;
+}
+
+// ArkOutputKind classifies an exported Ark output.
+enum ArkOutputKind {
+    ARK_OUTPUT_KIND_UNSPECIFIED = 0;
+
+    // ARK_OUTPUT_KIND_BOARDING is an on-chain boarding output.
+    ARK_OUTPUT_KIND_BOARDING = 1;
+
+    // ARK_OUTPUT_KIND_VTXO is a live VTXO's output, on chain only after a
+    // unilateral exit.
+    ARK_OUTPUT_KIND_VTXO = 2;
+
+    // ARK_OUTPUT_KIND_OOR_RECEIVE is an out-of-round receive script.
+    ARK_OUTPUT_KIND_OOR_RECEIVE = 3;
+}
+
+message ListArkOutputDescriptorsRequest {
+    // kinds filters the export. Empty exports every kind.
+    repeated ArkOutputKind kinds = 1;
+}
+
+message ArkOutputDescriptor {
+    // output_descriptor is rawtr(OUTPUT_KEY) with its BIP380 checksum,
+    // where OUTPUT_KEY is the hex x-only taproot output key.
+    string output_descriptor = 1;
+
+    // kind classifies the output.
+    ArkOutputKind kind = 2;
+
+    // key_family and key_index locate the wallet key in the output's policy.
+    uint32 key_family = 3;
+    uint32 key_index = 4;
+
+    // operator_pubkey is the hex compressed operator key in the policy, when
+    // known.
+    string operator_pubkey = 5;
+
+    // exit_delay is the policy's CSV exit delay in blocks, when known.
+    uint32 exit_delay = 6;
+
+    // outpoint is txid:vout for outputs that exist on chain or in a VTXO
+    // tree; empty for receive scripts that have not been paid.
+    string outpoint = 7;
+}
+
+message ListArkOutputDescriptorsResponse {
+    repeated ArkOutputDescriptor descriptors = 1;
 }
 
 message GetBalanceRequest {
