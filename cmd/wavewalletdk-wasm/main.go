@@ -80,6 +80,23 @@ func walletCall(_ js.Value, args []js.Value) any {
 			return parse(out), nil
 		})
 
+	case "startDescriptorWallet":
+		// The envelope has the same nested config shape as the
+		// external-seed one, so the same validation applies.
+		body, err := externalSeedWalletStartRequest(req)
+		if err != nil {
+			return rejected(err)
+		}
+
+		return promise(func() (any, error) {
+			out, err := mobile.StartDescriptorWallet(body)
+			if err != nil {
+				return nil, err
+			}
+
+			return parse(out), nil
+		})
+
 	case "stop":
 		return promise(func() (any, error) {
 			return js.Null(), mobile.Stop()
@@ -101,6 +118,9 @@ func walletCall(_ js.Value, args []js.Value) any {
 
 	case "unlockWallet":
 		return promise(jsonVerb(req, mobile.UnlockWallet))
+
+	case "listWalletDescriptors":
+		return promise(jsonVerb(req, mobile.ListWalletDescriptors))
 
 	case "openWalletFromPasskey":
 		return promise(jsonVerb(req, mobile.OpenWalletFromPasskey))

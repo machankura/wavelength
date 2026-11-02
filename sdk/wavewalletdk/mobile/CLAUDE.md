@@ -21,6 +21,10 @@ application-facing wallet API.
 - `StartExternalSeedWallet(reqJSON []byte) ([]byte, error)` — starts at the
   final data directory, imports or unlocks 16 bytes of already-derived entropy,
   and returns the marshalled open result through the same lifecycle.
+- `StartDescriptorWallet(reqJSON []byte) ([]byte, error)` — the descriptor
+  counterpart of `StartExternalSeedWallet`, sharing its singleton guard and
+  nested-config envelope; `ListWalletDescriptors` exports the active wallet's
+  descriptors.
 - `Subscription` — pull-based handle (`Next`/`Close`) over a wallet activity
   stream, replacing the callback interfaces gomobile would otherwise require.
 - `mobileConfig` — unexported flat JSON config decoded by `parseConfig`/

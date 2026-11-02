@@ -85,6 +85,11 @@ func Start(cfgJSON string) error
 // ExternalSeedWalletOpenResult JSON.
 func StartExternalSeedWallet(reqJSON []byte) ([]byte, error)
 
+// StartDescriptorWallet starts at a host-selected final data directory, then
+// imports or unlocks a wallet from private output descriptors. It returns
+// DescriptorWalletOpenResult JSON.
+func StartDescriptorWallet(reqJSON []byte) ([]byte, error)
+
 // Stop tears down the daemon. Idempotent; resets the singleton so a host can
 // restart after the OS suspends/resumes the app.
 func Stop() error
@@ -144,6 +149,35 @@ counters, not an internal mnemonic.
 
 Mobile and WASM expose one active client per binding instance. Call `Stop`
 before reusing that instance for another final directory.
+
+### Descriptor wallets
+
+`StartDescriptorWallet` follows the external-seed contract with descriptors
+in place of entropy. The envelope is snake_case:
+
+```json
+{
+  "config": {
+    "data_dir": "/data/user/0/<app>/files/wavelength/wallets/<id>",
+    "network": "signet",
+    "wallet_type": "lwwallet"
+  },
+  "descriptors": [
+    "tr(tprv.../86h/0h/0h/<0;1>/*)#checksum",
+    "wpkh(tprv.../84h/0h/0h/<0;1>/*)#checksum"
+  ],
+  "birthday_unix": 1767225600,
+  "expected_identity_pubkey": "optional identity pinned after first use",
+  "recover_state": false,
+  "recovery_window": 0
+}
+```
+
+The response is the PascalCase `DescriptorWalletOpenResult`, which carries the
+public descriptors the wallet watches. `ListWalletDescriptors` takes the
+PascalCase `ListWalletDescriptorsRequest` and is also exposed to WASM as
+`listWalletDescriptors`. Descriptors with private keys are as sensitive as a
+seed: keep them in the platform keystore and redact them from logs.
 
 ### Streaming
 
