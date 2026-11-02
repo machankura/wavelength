@@ -54,4 +54,14 @@ func TestWalletKeyOriginStore(t *testing.T) {
 	got, err = store.Get(ctx)
 	require.NoError(t, err)
 	require.Equal(t, third, got.UnwrapOrFail(t))
+
+	fourth := WalletKeyOrigin{
+		RootFingerprint: 0x01020304,
+		Source:          WalletKeySourceAccountKeys,
+	}
+	require.NoError(t, store.Put(ctx, fourth, time.Unix(400, 0)))
+
+	got, err = store.Get(ctx)
+	require.NoError(t, err)
+	require.Equal(t, fourth, got.UnwrapOrFail(t))
 }

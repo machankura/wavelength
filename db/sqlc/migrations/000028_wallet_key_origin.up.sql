@@ -16,7 +16,8 @@ CREATE TABLE IF NOT EXISTS wallet_key_origin (
     --   0 = aezeed mnemonic or raw seed
     --   1 = output descriptors
     --   2 = watch-only bundle of account public keys, signed remotely
-    source INTEGER NOT NULL CHECK (source IN (0, 1, 2)),
+    --   3 = account-level private keys, signed in process
+    source INTEGER NOT NULL CHECK (source IN (0, 1, 2, 3)),
 
     -- created_at is the unix timestamp when the row was written.
     created_at BIGINT NOT NULL

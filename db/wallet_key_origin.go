@@ -24,6 +24,10 @@ const (
 	// WalletKeySourceWatchOnly is a bundle of account public keys whose
 	// private keys live on a remote signer.
 	WalletKeySourceWatchOnly WalletKeySource = 2
+
+	// WalletKeySourceAccountKeys is a set of account-level private keys,
+	// kept in the wallet's encrypted keystore.
+	WalletKeySourceAccountKeys WalletKeySource = 3
 )
 
 // WalletKeyOrigin is the public metadata about a wallet's BIP32 master key
