@@ -143,8 +143,8 @@ func newRootCmd(devMode bool) *cobra.Command {
 
 	// Daemon introspection at root.
 	introspectionCmds := []*cobra.Command{
-		newGetInfoCmd(), newBakeMacaroonCmd(), newSchemaCmd(),
-		newMCPCmd(),
+		newGetInfoCmd(), newDescriptorsCmd(), newBakeMacaroonCmd(),
+		newSchemaCmd(), newMCPCmd(),
 	}
 	for _, c := range introspectionCmds {
 		c.GroupID = groupIntrospection

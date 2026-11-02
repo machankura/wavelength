@@ -245,6 +245,44 @@ func walletAdminMethodRegistry() []schemaMethod {
 			JSONInput:    false,
 		},
 		{
+			Method: "descriptors",
+			Description: "Print the wallet's output " +
+				"descriptors",
+			Params: []schemaParam{
+				{
+					Name: "private",
+					Type: "bool",
+					Description: "print private " +
+						"descriptors; requires " +
+						"the mnemonic or root " +
+						"descriptors",
+				},
+				{
+					Name: "mnemonic-file",
+					Type: "string",
+					Description: "path to the " +
+						"wallet's aezeed mnemonic",
+				},
+				{
+					Name: "seed-passphrase-file",
+					Type: "string",
+					Description: "path to file " +
+						"containing the optional " +
+						"aezeed passphrase",
+				},
+				{
+					Name: "descriptor-file",
+					Type: "string",
+					Description: "path to the " +
+						"wallet's private root " +
+						"descriptors",
+				},
+			},
+			RequestType:  "ListWalletDescriptorsRequest",
+			ResponseType: "ListWalletDescriptorsResponse",
+			JSONInput:    false,
+		},
+		{
 			Method:       "getinfo",
 			Description:  "Display daemon status information",
 			Params:       nil,

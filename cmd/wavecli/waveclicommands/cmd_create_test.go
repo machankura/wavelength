@@ -123,3 +123,60 @@ func TestParseBirthday(t *testing.T) {
 	_, err = parseBirthday("yesterday")
 	require.ErrorContains(t, err, "invalid --birthday")
 }
+
+// TestValidateDescriptorsFlags covers the `descriptors` flag rules.
+func TestValidateDescriptorsFlags(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		flags   map[string]string
+		wantErr string
+	}{
+		{
+			"public",
+			nil,
+			"",
+		},
+		{"private from mnemonic", map[string]string{
+			"private": "true", "mnemonic-file": "m.txt",
+			"seed-passphrase-file": "p.txt",
+		}, ""},
+		{"private from descriptors", map[string]string{
+			"private": "true", "descriptor-file": "d.txt",
+		}, ""},
+		{"private without secret", map[string]string{
+			"private": "true",
+		}, "--private requires"},
+		{"both secrets", map[string]string{
+			"private": "true", "mnemonic-file": "m.txt",
+			"descriptor-file": "d.txt",
+		}, "mutually exclusive"},
+		{"secret without private", map[string]string{
+			"mnemonic-file": "m.txt",
+		}, "only used with --private"},
+		{"passphrase without mnemonic", map[string]string{
+			"private": "true", "descriptor-file": "d.txt",
+			"seed-passphrase-file": "p.txt",
+		}, "--seed-passphrase-file requires"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			cmd := newDescriptorsCmd()
+			for name, value := range tc.flags {
+				require.NoError(t, cmd.Flags().Set(name, value))
+			}
+
+			err := validateDescriptorsFlags(cmd)
+			if tc.wantErr == "" {
+				require.NoError(t, err)
+
+				return
+			}
+			require.ErrorContains(t, err, tc.wantErr)
+		})
+	}
+}
