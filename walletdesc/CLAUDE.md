@@ -20,6 +20,11 @@ SDK and tests share one set of rules.
   `wpkh` (84) descriptors a wallet built from `root` watches.
 - `NewAccountDescriptor` — a public descriptor from an account xpub read back
   from btcwallet, with or without a known fingerprint.
+- `ParseWatchOnlyBundle(data, params)` — the account public keys a
+  watch-only wallet is built from, as lnd's `wallet accounts list` JSON or as
+  one `tr()`/`wpkh()` account descriptor or `[fp/1017h/coinh/familyh]KEY/0/*`
+  key-family entry per line. Returns `*WatchOnlyBundle` with accounts in
+  import order and keys normalized to standard `xpub`/`tpub` versions.
 - `Checksum` / `AddChecksum` — the BIP380 checksum.
 - Sentinel errors (`ErrWatchOnlyDescriptor`, `ErrNotRootKey`,
   `ErrUnsupportedPath`, `ErrLegacyDerivationMismatch`, ...) — every `Parse`
@@ -27,7 +32,8 @@ SDK and tests share one set of rules.
 
 ## Relationships
 
-- **Depends on**: btcd `hdkeychain`, `chaincfg` and `address` only.
+- **Depends on**: btcd `hdkeychain`, `chaincfg` and `address`, and
+  `lib/keyfamily` for the families a bundle must cover.
 - **Depended on by**: the daemon's wallet creation path (planned in
   `docs/descriptor-wallets-execplan.md`).
 
@@ -46,6 +52,12 @@ SDK and tests share one set of rules.
   (`ErrLegacyDerivationMismatch`), for the same reason.
 - No error, `String` or `LogValue` output contains key material. Tests
   enforce this.
+- A watch-only bundle must hold BIP86 account `86'/0'/0'` and every key
+  family `1017'/coin'/0'` to `255'`, contiguous, because btcwallet numbers an
+  imported account one past its scope's last account whatever the key's own
+  child index says: a gap would shift every later family onto the wrong key.
+  Each key's depth and child index must match its stated account, and every
+  entry must be public.
 
 ## Deep Docs
 
