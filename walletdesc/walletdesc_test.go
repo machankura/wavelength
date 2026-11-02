@@ -685,3 +685,83 @@ func TestPublicKeyIndependent(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, public, again)
 }
+
+// TestCanonicalPrivate checks the private export renders master-key form
+// that parses back to the same wallet, and falls back to the account-level
+// key for a script type hit by the legacy derivation edge case.
+func TestCanonicalPrivate(t *testing.T) {
+	t.Parallel()
+
+	params := &chaincfg.RegressionNetParams
+	root := testRoot(t, compatibleSeed(t, params), params)
+
+	private, err := CanonicalPrivate(root, params)
+	require.NoError(t, err)
+	require.Len(t, private, 2)
+
+	var texts []string
+	for i := range private {
+		text, err := private[i].Render(true)
+		require.NoError(t, err)
+		require.Contains(t, text, root.String())
+		texts = append(texts, text)
+	}
+
+	wd, err := Parse(texts, params)
+	require.NoError(t, err)
+	require.Equal(t, root.String(), wd.Root.String())
+
+	// Public renderings of the private export match CanonicalPublic.
+	public, err := CanonicalPublic(root, params)
+	require.NoError(t, err)
+	for i := range private {
+		got, err := private[i].Render(false)
+		require.NoError(t, err)
+		want, err := public[i].Render(false)
+		require.NoError(t, err)
+		require.Equal(t, want, got)
+	}
+
+	_, err = CanonicalPrivate(public[0].key, params)
+	require.ErrorIs(t, err, ErrNotRootKey)
+
+	// Find an affected master key and check the fallback form.
+	for i := uint32(0); i < 5000; i++ {
+		affected := testRoot(t, i, params)
+		ok, err := legacyCompatible(affected, accountPath(86, 0, 0))
+		require.NoError(t, err)
+		if ok {
+			continue
+		}
+
+		private, err := CanonicalPrivate(affected, params)
+		require.NoError(t, err)
+
+		text, err := private[0].Render(true)
+		require.NoError(t, err)
+		require.NotContains(t, text, affected.String())
+
+		fp, err := Fingerprint(affected)
+		require.NoError(t, err)
+		require.True(
+			t,
+			strings.HasPrefix(
+				text,
+				fmt.Sprintf("tr([%08x/86h/0h/0h]tprv", fp),
+			),
+		)
+
+		// Its public form must still be the key btcwallet uses, and
+		// must not carry the account private key.
+		pub, err := private[0].Render(false)
+		require.NoError(t, err)
+		require.NotContains(t, pub, "tprv")
+		acct, err := accountPublicKey(affected, 86, 0, 0)
+		require.NoError(t, err)
+		require.Contains(t, pub, acct.String())
+
+		return
+	}
+
+	t.Fatal("no affected master key found in the search range")
+}

@@ -151,6 +151,68 @@ func CanonicalPublic(root *hdkeychain.ExtendedKey,
 	return out, nil
 }
 
+// CanonicalPrivate returns the private tr (86) and wpkh (84) descriptors of
+// a wallet built from root, covering receive and change. A script type
+// whose account path derives the same key under standard BIP32 and
+// btcwallet's legacy derivation is rendered in master-key form, which any
+// descriptor wallet can import. One that hits the legacy edge case is
+// rendered as the account-level private key btcwallet actually uses, with
+// its origin, because below the account every wallet derives identically;
+// a master-key rendering would describe different addresses. The returned
+// master-key descriptors share root, so wiping root makes them unusable.
+func CanonicalPrivate(root *hdkeychain.ExtendedKey,
+	params *chaincfg.Params) ([]Descriptor, error) {
+
+	if !root.IsPrivate() || root.Depth() != 0 {
+		return nil, ErrNotRootKey
+	}
+	if !root.IsForNet(params) {
+		return nil, ErrNetworkMismatch
+	}
+
+	fp, err := Fingerprint(root)
+	if err != nil {
+		return nil, err
+	}
+
+	types := []ScriptType{ScriptTaproot, ScriptWitnessPubKeyHash}
+	out := make([]Descriptor, 0, len(types))
+	for _, scriptType := range types {
+		path := accountPath(
+			scriptType.Purpose(), walletCoinType, walletAccount,
+		)
+
+		compatible, err := legacyCompatible(root, path)
+		if err != nil {
+			return nil, err
+		}
+
+		desc := Descriptor{
+			scriptType:     scriptType,
+			key:            root,
+			keyIsRoot:      true,
+			fingerprint:    fp,
+			hasFingerprint: true,
+			branches: []uint32{
+				0,
+				1,
+			},
+		}
+		if !compatible {
+			acct, err := deriveHardened(root, path, true)
+			if err != nil {
+				return nil, err
+			}
+			desc.key = acct
+			desc.keyIsRoot = false
+		}
+
+		out = append(out, desc)
+	}
+
+	return out, nil
+}
+
 // ScriptType returns the descriptor's script type.
 func (d *Descriptor) ScriptType() ScriptType {
 	return d.scriptType
@@ -168,52 +230,68 @@ func (d *Descriptor) Branches() []uint32 {
 
 // HasPrivateKey reports whether Render can produce a private descriptor.
 func (d *Descriptor) HasPrivateKey() bool {
-	return d.keyIsRoot && d.key.IsPrivate()
+	return d.key.IsPrivate()
 }
 
-// Render returns the descriptor text with its checksum. Private descriptors
-// use the master key followed by the full path; public descriptors use the
-// account key with a [fingerprint/path] origin. Callers must treat a
-// private rendering as seed-equivalent and never log it.
+// Render returns the descriptor text with its checksum. A private rendering
+// of a master-key descriptor uses the master key followed by the full path;
+// a private rendering of an account-key descriptor, and every public
+// rendering, uses the account key with a [fingerprint/path] origin. Callers
+// must treat a private rendering as seed-equivalent and never log it.
 func (d *Descriptor) Render(includePrivate bool) (string, error) {
 	purpose := d.scriptType.Purpose()
 	branches := renderBranches(d.branches)
 
 	var body string
 	switch {
-	case includePrivate:
-		if !d.HasPrivateKey() {
-			return "", fmt.Errorf("descriptor has no private key")
-		}
+	case includePrivate && !d.HasPrivateKey():
+		return "", fmt.Errorf("descriptor has no private key")
 
+	case includePrivate && d.keyIsRoot:
 		body = fmt.Sprintf("%s(%s/%dh/%dh/%dh/%s/*)", d.scriptType,
 			d.key.String(), purpose, walletCoinType, walletAccount,
 			branches)
 
+	case includePrivate:
+		body = fmt.Sprintf("%s(%s%s/%s/*)", d.scriptType, d.origin(),
+			d.key.String(), branches)
+
 	default:
-		acct := d.key
-		if d.keyIsRoot {
-			var err error
+		// A public rendering must never carry a private key, whether
+		// the descriptor holds the master key or an account key.
+		var (
+			acct *hdkeychain.ExtendedKey
+			err  error
+		)
+		switch {
+		case d.keyIsRoot:
 			acct, err = accountPublicKey(
 				d.key, purpose, walletCoinType, walletAccount,
 			)
-			if err != nil {
-				return "", err
-			}
+
+		default:
+			acct, err = independentPublic(d.key)
+		}
+		if err != nil {
+			return "", err
 		}
 
-		origin := ""
-		if d.hasFingerprint {
-			origin = fmt.Sprintf("[%08x/%dh/%dh/%dh]",
-				d.fingerprint, purpose, walletCoinType,
-				walletAccount)
-		}
-
-		body = fmt.Sprintf("%s(%s%s/%s/*)", d.scriptType, origin,
+		body = fmt.Sprintf("%s(%s%s/%s/*)", d.scriptType, d.origin(),
 			acct.String(), branches)
 	}
 
 	return AddChecksum(body)
+}
+
+// origin returns the [fingerprint/purpose'/0'/0'] key origin, or nothing
+// when the fingerprint is unknown.
+func (d *Descriptor) origin() string {
+	if !d.hasFingerprint {
+		return ""
+	}
+
+	return fmt.Sprintf("[%08x/%dh/%dh/%dh]", d.fingerprint,
+		d.scriptType.Purpose(), walletCoinType, walletAccount)
 }
 
 // String returns a redacted summary that is safe to log.
