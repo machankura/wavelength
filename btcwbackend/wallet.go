@@ -92,8 +92,8 @@ func checkWalletInvariants(cfg Config) error {
 	}
 
 	create, err := walletcore.ValidateWalletSource(
-		cfg.Seed, cfg.RootKey, cfg.WatchOnly, cfg.RemoteSigner,
-		cfg.ChainParams,
+		cfg.Seed, cfg.RootKey, cfg.WatchOnly, cfg.AccountKeys,
+		cfg.RemoteSigner, cfg.ChainParams,
 	)
 	if err != nil {
 		return err
@@ -206,39 +206,20 @@ func NewWithNeutrino(cfg Config,
 		ChainParams: cfg.ChainParams,
 		WalletLog:   cfg.Log,
 	}
-	if cfg.RemoteSigner != nil {
-		// A watch-only wallet has no private passphrase, so the
-		// user's password protects its public data instead.
-		btcwCfg.PublicPass = cfg.WalletPassword
-		remote, err := walletcore.OpenRemoteSigning(
-			context.Background(), btcwCfg, cfg.WatchOnly,
-			*cfg.RemoteSigner, blockCache,
-		)
-		if err != nil {
-			return nil, fmt.Errorf("open remote-signing wallet: %w",
-				err)
-		}
-
-		core.Signer = remote.KeyRing
-		core.BtcWallet = remote.BtcWallet
-		core.Controller = remote.KeyRing
-		core.KeyRing = remote.KeyRing
-		core.RemoteSigner = remote.Conn
-	} else {
-		btcw, err := walletcore.NewBtcWallet(
-			btcwCfg, cfg.RootKey, blockCache,
-		)
-		if err != nil {
-			return nil, fmt.Errorf("create btcwallet: %w", err)
-		}
-
-		core.Signer = btcw
-		core.BtcWallet = btcw
-		core.Controller = btcw
-		core.KeyRing = keychain.NewBtcWalletKeyRing(
-			btcw.InternalWallet(), coinType,
-		)
+	signing, err := walletcore.OpenSigning(
+		context.Background(), btcwCfg, walletcore.WalletSource{
+			Seed:           cfg.Seed,
+			RootKey:        cfg.RootKey,
+			WatchOnly:      cfg.WatchOnly,
+			RemoteSigner:   cfg.RemoteSigner,
+			AccountKeys:    cfg.AccountKeys,
+			WalletPassword: cfg.WalletPassword,
+		}, blockCache,
+	)
+	if err != nil {
+		return nil, err
 	}
+	signing.Apply(&core, coinType)
 	btcw := core.BtcWallet
 
 	// Create the chain backend with neutrino notifier and fee

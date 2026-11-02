@@ -37,6 +37,13 @@ type Config struct {
 	// existing database.
 	WatchOnly *walletdesc.WatchOnlyBundle
 
+	// AccountKeys is the account-level private keys to create a wallet
+	// from, instead of a seed or root key. The wallet keeps them
+	// encrypted under WalletPassword and signs in process. Like Seed it
+	// must be unset when opening an existing database, which recognises
+	// an account-key wallet by itself.
+	AccountKeys *walletdesc.AccountKeys
+
 	// RemoteSigner, when set, runs the wallet watch-only: the database
 	// holds only account public keys and every signature is requested
 	// from this signer. WalletPassword then encrypts the database's

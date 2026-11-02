@@ -96,8 +96,8 @@ func checkWalletInvariants(cfg Config) error {
 	}
 
 	create, err := walletcore.ValidateWalletSource(
-		cfg.Seed, cfg.RootKey, cfg.WatchOnly, cfg.RemoteSigner,
-		cfg.ChainParams,
+		cfg.Seed, cfg.RootKey, cfg.WatchOnly, cfg.AccountKeys,
+		cfg.RemoteSigner, cfg.ChainParams,
 	)
 	if err != nil {
 		return err
@@ -192,48 +192,25 @@ func New(cfg Config) (*Wallet, error) {
 		ChainParams: cfg.ChainParams,
 		WalletLog:   cfg.Log,
 	}
-	if cfg.RemoteSigner != nil {
-		// A watch-only wallet has no private passphrase, so the
-		// user's password protects its public data instead.
-		btcwCfg.PublicPass = cfg.WalletPassword
-		remote, err := walletcore.OpenRemoteSigning(
-			context.Background(), btcwCfg, cfg.WatchOnly,
-			*cfg.RemoteSigner, blockCache,
-		)
-		if err != nil {
-			loaderCleanup()
+	signing, err := walletcore.OpenSigning(
+		context.Background(), btcwCfg, walletcore.WalletSource{
+			Seed:           cfg.Seed,
+			RootKey:        cfg.RootKey,
+			WatchOnly:      cfg.WatchOnly,
+			RemoteSigner:   cfg.RemoteSigner,
+			AccountKeys:    cfg.AccountKeys,
+			WalletPassword: cfg.WalletPassword,
+		}, blockCache,
+	)
+	if err != nil {
+		// On failure the wallet never adopted the loader's database
+		// handle, so release it here (a no-op natively, an OPFS
+		// handle close in browser builds).
+		loaderCleanup()
 
-			return nil, fmt.Errorf("open remote-signing wallet: %w",
-				err)
-		}
-
-		core.Signer = remote.KeyRing
-		core.BtcWallet = remote.BtcWallet
-		core.Controller = remote.KeyRing
-		core.KeyRing = remote.KeyRing
-		core.RemoteSigner = remote.Conn
-	} else {
-		btcw, err := walletcore.NewBtcWallet(
-			btcwCfg, cfg.RootKey, blockCache,
-		)
-		if err != nil {
-			// On failure the wallet never adopted the loader's
-			// database handle, so release it here (a no-op
-			// natively, an OPFS handle close in browser builds).
-			loaderCleanup()
-
-			return nil, fmt.Errorf("create btcwallet: %w", err)
-		}
-
-		// The key ring derives under the same m/1017'/coinType'
-		// scope as lnd.
-		core.Signer = btcw
-		core.BtcWallet = btcw
-		core.Controller = btcw
-		core.KeyRing = keychain.NewBtcWalletKeyRing(
-			btcw.InternalWallet(), coinType,
-		)
+		return nil, err
 	}
+	signing.Apply(&core, coinType)
 	btcw := core.BtcWallet
 
 	boardingBackend := NewBoardingBackendAdapter(

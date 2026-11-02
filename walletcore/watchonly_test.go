@@ -351,29 +351,29 @@ func TestValidateWalletSource(t *testing.T) {
 	remote := &walletcore.RemoteSignerConfig{}
 
 	create, err := walletcore.ValidateWalletSource(
-		nil, nil, bundle, remote, params,
+		nil, nil, bundle, nil, remote, params,
 	)
 	require.NoError(t, err)
 	require.True(t, create)
 
 	create, err = walletcore.ValidateWalletSource(
-		nil, nil, nil, remote, params,
+		nil, nil, nil, nil, remote, params,
 	)
 	require.NoError(t, err)
 	require.False(t, create)
 
 	_, err = walletcore.ValidateWalletSource(
-		testSeed(), nil, bundle, remote, params,
+		testSeed(), nil, bundle, nil, remote, params,
 	)
 	require.ErrorIs(t, err, walletcore.ErrBundleAndSeed)
 
 	_, err = walletcore.ValidateWalletSource(
-		nil, nil, bundle, nil, params,
+		nil, nil, bundle, nil, nil, params,
 	)
 	require.ErrorContains(t, err, "needs a remote signer")
 
 	_, err = walletcore.ValidateWalletSource(
-		testSeed(), nil, nil, remote, params,
+		testSeed(), nil, nil, nil, remote, params,
 	)
 	require.ErrorContains(t, err, "created from a watch-only bundle")
 }

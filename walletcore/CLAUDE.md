@@ -38,6 +38,15 @@ btcwallet.BtcWallet regardless of the underlying chain source.
   signer holds the identity key the imported xpubs imply. Dialing is
   compiled out of `js && wasm` builds, which cannot open the gRPC
   connection.
+- `CreateAccountSigning` / `OpenExisting` / `OpenSigning` /
+  `WalletSource` — the shared create-or-open path for both backends.
+  Account-key wallets are watch-only btcwallets plus an
+  `accountsigner` keystore, signing through the same RPC key ring as a
+  remote-signing wallet but with the in-process `accountsigner.Signer` as
+  its connection. `OpenExisting` tells the kinds apart on its own: a
+  key-holding database signs through btcwallet, a watch-only one with a
+  keystore loads it with the password, and a watch-only one without a
+  keystore fails with `ErrWatchOnlyWithoutSigner`.
 - `OutputLeaser` — Interface for UTXO reservation during coin selection:
   `LeaseOutput(ctx, id, outpoint, expiry)` and
   `ReleaseOutput(ctx, id, outpoint)`. Implemented by `lwwallet.BoardingBackendAdapter`
@@ -76,6 +85,10 @@ btcwallet.BtcWallet regardless of the underlying chain source.
 - Imported accounts must get the number their key was derived at;
   `NewWatchOnlyBtcWallet` checks each import's `AccountNumber`, since
   btcwallet assigns one past the scope's last account.
+- Account-key wallets keep the static public passphrase, like seed
+  wallets; the wallet password protects the keystore. Remote-signing
+  wallets instead use the password as the public passphrase, which is why
+  they need `RemoteSigner` configured to open.
 - The user-supplied `Config.WalletPassword` is btcwallet's `PrivatePass`; the
   static `PublicWalletPassphrase` constant covers only public (watch-only)
   data. With neither `Config.Seed` nor `Config.RootKey` set the backend opens
