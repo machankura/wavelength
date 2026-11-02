@@ -211,12 +211,21 @@ func walletAdminMethodRegistry() []schemaMethod {
 						"instead of a mnemonic",
 				},
 				{
+					Name: "watch-only-bundle-file",
+					Type: "string",
+					Description: "path to the remote " +
+						"signer's account public " +
+						"keys, for a wallet whose " +
+						"private keys stay on that " +
+						"signer",
+				},
+				{
 					Name: "birthday",
 					Type: "string",
 					Description: "earliest date the " +
-						"descriptor keys may have " +
-						"received funds (RFC3339 " +
-						"or YYYY-MM-DD)",
+						"descriptor or bundle keys " +
+						"may have received funds " +
+						"(RFC3339 or YYYY-MM-DD)",
 				},
 			},
 			RequestType:  "CreateRequest",

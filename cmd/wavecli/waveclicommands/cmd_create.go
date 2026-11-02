@@ -50,6 +50,13 @@ func newCreateCmd() *cobra.Command {
 			"without it the wallet scans from genesis. The " +
 			"response lists the public descriptors the wallet " +
 			"watches.\n\n" +
+			"With --watch-only-bundle-file the wallet holds " +
+			"public keys only and every signature comes from " +
+			"the daemon's wallet.remotesigner. The bundle is " +
+			"the signer's `lncli wallet accounts list` JSON, " +
+			"or one account descriptor or key family entry per " +
+			"line; see docs/daemon_cli_guide.md. --birthday " +
+			"applies as for descriptors.\n\n" +
 			"Example:\n" +
 			"  printf '%s\\n' 'hunter2hunter2' | " +
 			"wavecli create --password-stdin\n" +
@@ -79,9 +86,13 @@ func newCreateCmd() *cobra.Command {
 		"path to file containing private output descriptors, one "+
 			"per line, to build the wallet from instead of a "+
 			"mnemonic")
+	cmd.Flags().String("watch-only-bundle-file", "",
+		"path to the remote signer's account public keys, for a "+
+			"wallet whose private keys stay on that signer")
 	cmd.Flags().String("birthday", "",
-		"earliest date the descriptor keys may have received funds "+
-			"(RFC3339 or YYYY-MM-DD); requires --descriptor-file")
+		"earliest date the descriptor or bundle keys may have "+
+			"received funds (RFC3339 or YYYY-MM-DD); requires "+
+			"--descriptor-file or --watch-only-bundle-file")
 
 	return cmd
 }
@@ -90,6 +101,7 @@ func newCreateCmd() *cobra.Command {
 type createSource struct {
 	mnemonic     []string
 	descriptors  []string
+	bundle       []byte
 	birthdayUnix int64
 }
 
@@ -103,6 +115,32 @@ func validateCreateFlags(cmd *cobra.Command) error {
 	birthday, _ := cmd.Flags().GetString("birthday")
 	passphraseFile, _ := cmd.Flags().GetString("seed-passphrase-file")
 	printJSON, _ := cmd.Flags().GetBool("print-mnemonic-json")
+	bundleFile, _ := cmd.Flags().GetString("watch-only-bundle-file")
+
+	if bundleFile != "" {
+		switch {
+		case descriptorFile != "" || mnemonicFile != "":
+			return fmt.Errorf("--watch-only-bundle-file excludes " +
+				"--descriptor-file and --mnemonic-file: the " +
+				"wallet's private keys stay on the signer")
+
+		case passphraseFile != "":
+			return fmt.Errorf("--seed-passphrase-file applies " +
+				"only to a mnemonic, not to " +
+				"--watch-only-bundle-file")
+
+		case printJSON:
+			return fmt.Errorf("--print-mnemonic-json has no " +
+				"effect with --watch-only-bundle-file: a " +
+				"watch-only wallet has no mnemonic")
+
+		case !recoverWallet && recoveryWindow != 0:
+			return fmt.Errorf("--recovery-window requires " +
+				"--recover")
+		}
+
+		return nil
+	}
 
 	if descriptorFile != "" {
 		switch {
@@ -129,12 +167,13 @@ func validateCreateFlags(cmd *cobra.Command) error {
 
 	switch {
 	case birthday != "":
-		return fmt.Errorf("--birthday requires --descriptor-file; a " +
-			"mnemonic carries its own birthday")
+		return fmt.Errorf("--birthday requires --descriptor-file or " +
+			"--watch-only-bundle-file; a mnemonic carries its " +
+			"own birthday")
 
 	case recoverWallet && mnemonicFile == "":
-		return fmt.Errorf("--recover requires --mnemonic-file or " +
-			"--descriptor-file")
+		return fmt.Errorf("--recover requires --mnemonic-file, " +
+			"--descriptor-file or --watch-only-bundle-file")
 
 	case !recoverWallet && mnemonicFile != "":
 		return fmt.Errorf("--mnemonic-file requires --recover")
@@ -151,6 +190,7 @@ func readCreateSource(cmd *cobra.Command) (*createSource, error) {
 	recoverWallet, _ := cmd.Flags().GetBool("recover")
 	mnemonicFile, _ := cmd.Flags().GetString("mnemonic-file")
 	descriptorFile, _ := cmd.Flags().GetString("descriptor-file")
+	bundleFile, _ := cmd.Flags().GetString("watch-only-bundle-file")
 	birthday, _ := cmd.Flags().GetString("birthday")
 
 	var (
@@ -158,19 +198,25 @@ func readCreateSource(cmd *cobra.Command) (*createSource, error) {
 		err    error
 	)
 
+	if birthday != "" {
+		when, err := parseBirthday(birthday)
+		if err != nil {
+			return nil, err
+		}
+		source.birthdayUnix = when.Unix()
+	}
+
 	switch {
-	case descriptorFile != "":
-		source.descriptors, err = readDescriptorFile(descriptorFile)
+	case bundleFile != "":
+		source.bundle, err = readWatchOnlyBundleFile(bundleFile)
 		if err != nil {
 			return nil, err
 		}
 
-		if birthday != "" {
-			when, err := parseBirthday(birthday)
-			if err != nil {
-				return nil, err
-			}
-			source.birthdayUnix = when.Unix()
+	case descriptorFile != "":
+		source.descriptors, err = readDescriptorFile(descriptorFile)
+		if err != nil {
+			return nil, err
 		}
 
 	case recoverWallet:
@@ -206,10 +252,12 @@ func walletCreate(cmd *cobra.Command, _ []string) error {
 
 	// The environment can still supply a seed passphrase; refuse it for
 	// descriptors rather than silently ignoring it.
-	fromDescriptors := len(source.descriptors) > 0
+	fromDescriptors := len(source.descriptors) > 0 ||
+		len(source.bundle) > 0
 	if fromDescriptors && len(seedPassphrase) > 0 {
 		return fmt.Errorf("WAVED_SEED_PASSPHRASE applies only to a " +
-			"mnemonic; unset it to create from descriptors")
+			"mnemonic; unset it to create from descriptors or a " +
+			"watch-only bundle")
 	}
 
 	password, err := readPasswordConfirmed(cmd)
@@ -227,13 +275,14 @@ func walletCreate(cmd *cobra.Command, _ []string) error {
 
 			resp, err := c.Create(
 				ctx, &wavewalletrpc.CreateRequest{
-					WalletPassword: password,
-					SeedPassphrase: seedPassphrase,
-					Mnemonic:       source.mnemonic,
-					RecoverState:   recoverWallet,
-					RecoveryWindow: recoveryWindow,
-					Descriptors:    source.descriptors,
-					BirthdayUnix:   source.birthdayUnix,
+					WalletPassword:  password,
+					SeedPassphrase:  seedPassphrase,
+					Mnemonic:        source.mnemonic,
+					RecoverState:    recoverWallet,
+					RecoveryWindow:  recoveryWindow,
+					Descriptors:     source.descriptors,
+					BirthdayUnix:    source.birthdayUnix,
+					WatchOnlyBundle: source.bundle,
 				},
 			)
 			if err != nil {
@@ -353,4 +402,36 @@ func clearStrings(values []string) {
 	for i := range values {
 		values[i] = ""
 	}
+}
+
+// maxWatchOnlyBundleBytes bounds a bundle file. lnd's JSON for a full
+// account list is around 100 KiB.
+const maxWatchOnlyBundleBytes = 1 << 20
+
+// readWatchOnlyBundleFile reads a watch-only bundle. It holds public keys
+// only, so unlike a descriptor file it is not treated as a secret; the
+// daemon parses and validates it.
+func readWatchOnlyBundleFile(path string) ([]byte, error) {
+	info, err := os.Stat(path)
+	if err != nil {
+		return nil, fmt.Errorf("unable to read watch-only bundle: %w",
+			err)
+	}
+	if info.Size() > maxWatchOnlyBundleBytes {
+		return nil, fmt.Errorf("watch-only bundle %s is %d bytes, "+
+			"at most %d", path, info.Size(),
+			maxWatchOnlyBundleBytes)
+	}
+
+	// The file path is explicitly provided by the CLI user.
+	data, err := os.ReadFile(path) //nolint:gosec // G304
+	if err != nil {
+		return nil, fmt.Errorf("unable to read watch-only bundle: %w",
+			err)
+	}
+	if len(strings.TrimSpace(string(data))) == 0 {
+		return nil, fmt.Errorf("watch-only bundle %s is empty", path)
+	}
+
+	return data, nil
 }

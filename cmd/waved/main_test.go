@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/lightninglabs/wavelength/waved"
 	"github.com/spf13/cobra"
@@ -409,5 +410,55 @@ func TestResolveBitcoindAuth(t *testing.T) {
 					pass)
 			}
 		})
+	}
+}
+
+// TestReadConfigFileRemoteSigner checks the three-level
+// wallet.remotesigner keys reach the wallet config.
+func TestReadConfigFileRemoteSigner(t *testing.T) {
+	t.Parallel()
+
+	configPath := filepath.Join(t.TempDir(), "waved.conf")
+	err := os.WriteFile(
+		configPath, []byte(
+			"wallet.type=lwwallet"+
+				"\n"+
+				"wallet.remotesigner.enable=true"+
+				"\n"+
+				"wallet.remotesigner.rpchost=signer:10009"+
+				"\n"+
+				"wallet.remotesigner.macaroonpath=/signer/ad"+
+				"min.macaroon"+
+				"\n"+
+				"wallet.remotesigner.tlscertpath=/signer/tls"+
+				".cert"+
+				"\nwallet.remotesigner.requesttimeout=7s\n",
+		),
+		0o600,
+	)
+	if err != nil {
+		t.Fatalf("write config file: %v", err)
+	}
+
+	v, cmd := newTestConfigCommand(t, "")
+	if err := cmd.Flags().Set("configfile", configPath); err != nil {
+		t.Fatalf("set configfile flag: %v", err)
+	}
+	if err := readConfigFile(v, cmd); err != nil {
+		t.Fatalf("read config file: %v", err)
+	}
+
+	cfg := waved.DefaultConfig()
+	if err := v.Unmarshal(cfg); err != nil {
+		t.Fatalf("unmarshal config: %v", err)
+	}
+
+	signer := cfg.Wallet.RemoteSigner
+	if !signer.Enable || signer.RPCHost != "signer:10009" ||
+		signer.MacaroonPath != "/signer/admin.macaroon" ||
+		signer.TLSCertPath != "/signer/tls.cert" ||
+		signer.RequestTimeout != 7*time.Second {
+
+		t.Fatalf("unexpected remote signer config: %+v", signer)
 	}
 }

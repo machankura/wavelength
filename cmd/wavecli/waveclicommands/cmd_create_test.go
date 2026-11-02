@@ -59,6 +59,26 @@ func TestValidateCreateFlags(t *testing.T) {
 		{"mnemonic without recover", map[string]string{
 			"mnemonic-file": "m.txt",
 		}, "--mnemonic-file requires --recover"},
+		{"watch-only bundle with birthday", map[string]string{
+			"watch-only-bundle-file": "b.json",
+			"birthday":               "2026-01-01",
+		}, ""},
+		{"watch-only bundle with recovery", map[string]string{
+			"watch-only-bundle-file": "b.json", "recover": "true",
+			"recovery-window": "50",
+		}, ""},
+		{"watch-only bundle and descriptors", map[string]string{
+			"watch-only-bundle-file": "b.json",
+			"descriptor-file":        "d.txt",
+		}, "excludes --descriptor-file"},
+		{"watch-only bundle and passphrase", map[string]string{
+			"watch-only-bundle-file": "b.json",
+			"seed-passphrase-file":   "p.txt",
+		}, "applies only to a mnemonic"},
+		{"watch-only bundle and mnemonic json", map[string]string{
+			"watch-only-bundle-file": "b.json",
+			"print-mnemonic-json":    "true",
+		}, "no mnemonic"},
 	}
 
 	for _, tc := range tests {

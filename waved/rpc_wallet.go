@@ -21,6 +21,7 @@ import (
 	"github.com/lightninglabs/wavelength/lwwallet"
 	"github.com/lightninglabs/wavelength/swaprpc"
 	"github.com/lightninglabs/wavelength/walletcore"
+	"github.com/lightninglabs/wavelength/walletdesc"
 	"github.com/lightninglabs/wavelength/waverpc"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lntypes"
@@ -439,7 +440,10 @@ func (r *RPCServer) InitWallet(ctx context.Context,
 
 	// Reject contradictory seed material before claiming any state, so
 	// a malformed request never flips the wallet state machine.
-	if err := validateInitWalletSource(req); err != nil {
+	err := validateInitWalletSource(
+		req, r.server.cfg.Wallet.RemoteSigner.Enable,
+	)
+	if err != nil {
 		return nil, status.Errorf(codes.InvalidArgument, "unable to "+
 			"initialize wallet: %v", err)
 	}
@@ -752,6 +756,10 @@ type walletCreateInput struct {
 	seed     []byte
 	rootKey  *hdkeychain.ExtendedKey
 	birthday time.Time
+
+	// watchOnly creates a remote-signing wallet from account public
+	// keys; it needs wallet.remotesigner and excludes seed and rootKey.
+	watchOnly *walletdesc.WatchOnlyBundle
 }
 
 // startSelfManagedWallet starts the appropriate self-managed wallet

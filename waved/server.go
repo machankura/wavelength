@@ -1945,6 +1945,26 @@ func (s *Server) refreshProofKeyBackend() {
 	s.proofKeyBackend = nil
 }
 
+// dropEnvSeedForRemoteSigner wipes and discards a seed from the environment
+// when the wallet signs remotely: such a wallet is created from a watch-only
+// bundle, and a seed here would mean the keys it is meant to keep off this
+// host are on it after all.
+func (s *Server) dropEnvSeedForRemoteSigner(ctx context.Context,
+	envSeed *[32]byte) *[32]byte {
+
+	if envSeed == nil || !s.cfg.Wallet.RemoteSigner.Enable {
+		return envSeed
+	}
+
+	zeroBytes(envSeed[:])
+	s.log.ErrorS(ctx, "Ignoring seed in environment variable",
+		errors.New("a remote-signing wallet is created from a "+
+			"watch-only bundle, never a seed"),
+	)
+
+	return nil
+}
+
 // tryAutoUnlockLwwallet attempts to initialize the lwwallet backend
 // at startup without user interaction. It checks for a seed in the
 // environment variable first, then probes for an existing wallet
@@ -1963,6 +1983,7 @@ func (s *Server) tryAutoUnlockLwwallet(ctx context.Context) error {
 
 		return nil
 	}
+	envSeed = s.dropEnvSeedForRemoteSigner(ctx, envSeed)
 
 	// Probe for an existing wallet database. This decides between
 	// the create path (seed required) and the open path (password
@@ -2106,6 +2127,8 @@ func (s *Server) startLwwallet(ctx context.Context, input walletCreateInput,
 	w, err := lwwallet.New(lwwallet.Config{
 		Seed:           input.seed,
 		RootKey:        input.rootKey,
+		WatchOnly:      input.watchOnly,
+		RemoteSigner:   s.cfg.Wallet.RemoteSigner.walletcoreConfig(),
 		WalletPassword: walletPassword,
 		Birthday:       input.birthday,
 		EsploraURL:     s.cfg.Wallet.EsploraURL,
@@ -2185,6 +2208,7 @@ func (s *Server) tryAutoUnlockBtcwallet(ctx context.Context) error {
 
 		return nil
 	}
+	envSeed = s.dropEnvSeedForRemoteSigner(ctx, envSeed)
 
 	// Probe for an existing wallet database. This decides between
 	// the create path (seed required) and the open path (password
@@ -2369,10 +2393,13 @@ func (s *Server) startBtcwallet(ctx context.Context, input walletCreateInput,
 		recoveryWindow = DefaultRecoveryWindow
 	}
 
+	remoteSigner := s.cfg.Wallet.RemoteSigner.walletcoreConfig()
 	cfg := btcwbackend.Config{
 		Config: walletcore.Config{
 			Seed:           input.seed,
 			RootKey:        input.rootKey,
+			WatchOnly:      input.watchOnly,
+			RemoteSigner:   remoteSigner,
 			WalletPassword: walletPassword,
 			Birthday:       input.birthday,
 			ChainParams:    s.chainParams,

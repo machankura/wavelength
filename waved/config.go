@@ -25,6 +25,7 @@ import (
 	"github.com/lightninglabs/wavelength/oor"
 	"github.com/lightninglabs/wavelength/rpc/roundpb"
 	"github.com/lightninglabs/wavelength/unroll"
+	"github.com/lightninglabs/wavelength/walletcore"
 	"google.golang.org/grpc"
 )
 
@@ -1216,6 +1217,54 @@ type WalletConfig struct {
 	// from being wired to the daemon logger. This is intended for
 	// parallel in-process tests that collect per-test log artifacts.
 	DisableGlobalLoggers bool `mapstructure:"disable_btcwallet_global_logs"`
+
+	// RemoteSigner runs an lwwallet or btcwallet backend watch-only,
+	// with every private key on a remote signer.
+	RemoteSigner RemoteSignerConfig `mapstructure:"remotesigner"`
+}
+
+// RemoteSignerConfig configures a self-managed wallet whose private keys
+// live on an lnd-compatible remote signer. The local wallet database holds
+// only the account public keys it was created from, and every signature
+// is requested from the signer.
+type RemoteSignerConfig struct {
+	// Enable turns remote signing on. The wallet must then be created
+	// from a watch-only bundle, never a mnemonic or descriptors with
+	// private keys.
+	Enable bool `mapstructure:"enable"`
+
+	// RPCHost is the signer's gRPC host:port.
+	RPCHost string `mapstructure:"rpchost"`
+
+	// MacaroonPath is a macaroon the signer accepts for signing.
+	MacaroonPath string `mapstructure:"macaroonpath"`
+
+	// TLSCertPath is the signer's TLS certificate.
+	TLSCertPath string `mapstructure:"tlscertpath"`
+
+	// Timeout bounds connecting to the signer. Zero selects
+	// walletcore.DefaultRemoteSignerTimeout.
+	Timeout time.Duration `mapstructure:"timeout"`
+
+	// RequestTimeout bounds each signing request. Zero selects
+	// walletcore.DefaultRemoteSignerRequestTimeout.
+	RequestTimeout time.Duration `mapstructure:"requesttimeout"`
+}
+
+// walletcoreConfig returns the signer config for the wallet backends, or
+// nil when remote signing is off.
+func (c RemoteSignerConfig) walletcoreConfig() *walletcore.RemoteSignerConfig {
+	if !c.Enable {
+		return nil
+	}
+
+	return &walletcore.RemoteSignerConfig{
+		RPCHost:        c.RPCHost,
+		MacaroonPath:   c.MacaroonPath,
+		TLSCertPath:    c.TLSCertPath,
+		Timeout:        c.Timeout,
+		RequestTimeout: c.RequestTimeout,
+	}
 }
 
 // DefaultConfig returns a Config populated with sensible defaults.
@@ -1478,6 +1527,31 @@ func (c *Config) validateWalletConfig() error {
 		return fmt.Errorf("unknown wallet type %q, valid values: lnd, "+
 			"lwwallet, btcwallet", c.Wallet.Type)
 	}
+
+	return c.Wallet.validateRemoteSigner()
+}
+
+// validateRemoteSigner checks wallet.remotesigner, which only the
+// self-managed backends use, and fills in its default timeouts.
+func (w *WalletConfig) validateRemoteSigner() error {
+	if !w.RemoteSigner.Enable {
+		return nil
+	}
+
+	switch w.Type {
+	case WalletTypeLwwallet, WalletTypeBtcwallet:
+	default:
+		return fmt.Errorf("wallet.remotesigner applies to the "+
+			"lwwallet and btcwallet backends, not %q; an lnd "+
+			"backend configures its own remote signer", w.Type)
+	}
+
+	signer := w.RemoteSigner.walletcoreConfig()
+	if err := signer.Validate(); err != nil {
+		return fmt.Errorf("wallet.remotesigner: %w", err)
+	}
+	w.RemoteSigner.Timeout = signer.Timeout
+	w.RemoteSigner.RequestTimeout = signer.RequestTimeout
 
 	return nil
 }

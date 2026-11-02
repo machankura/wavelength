@@ -664,3 +664,29 @@ func TestAdminHandlersPreserveGRPCCode(t *testing.T) {
 	})
 	require.Equal(t, codes.FailedPrecondition, status.Code(err))
 }
+
+// TestCreateFromWatchOnlyBundleSkipsGenSeed confirms a watch-only bundle is
+// forwarded to InitWallet as is, with no seed generated: the wallet's keys
+// live on the remote signer.
+func TestCreateFromWatchOnlyBundleSkipsGenSeed(t *testing.T) {
+	t.Parallel()
+
+	svc, rpc := newAdminFixture(t)
+	rpc.initWalletResp = &waverpc.InitWalletResponse{
+		IdentityPubkey: "beef",
+	}
+
+	bundle := []byte(`{"accounts": []}`)
+	resp, err := svc.Create(t.Context(), &wavewalletrpc.CreateRequest{
+		WalletPassword:  []byte("hunter2hunter2"),
+		WatchOnlyBundle: bundle,
+		BirthdayUnix:    1_700_000_000,
+	})
+	require.NoError(t, err)
+	require.Equal(
+		t, 0, rpc.genSeedCalls, "watch-only import must skip GenSeed",
+	)
+	require.Empty(t, resp.GetMnemonic())
+	require.Equal(t, bundle, rpc.initWalletLast.GetWatchOnlyBundle())
+	require.Empty(t, rpc.initWalletLast.GetMnemonic())
+}

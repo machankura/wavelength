@@ -157,42 +157,7 @@ func newRootCmd() *cobra.Command {
 
 	registerArkServerFlags(f, cfg)
 
-	// Wallet backend flags.
-	f.String(
-		"wallet.type", cfg.Wallet.Type,
-		"wallet backend type (lnd, lwwallet, btcwallet)",
-	)
-	f.String(
-		"wallet.esploraurl", cfg.Wallet.EsploraURL,
-		"esplora REST API URL (required for lwwallet)",
-	)
-	f.String(
-		"wallet.feeurl", cfg.Wallet.FeeURL,
-		"fee-estimate JSON endpoint URL (required for btcwallet)",
-	)
-	f.String(
-		"wallet.btcwallet_blockheaderssource",
-		cfg.Wallet.BtcwBlockSource,
-		"block header import source for btcwallet fast sync",
-	)
-	f.String(
-		"wallet.btcwallet_filterheaderssource",
-		cfg.Wallet.BtcwFilterSource,
-		"filter header import source for btcwallet fast sync",
-	)
-	f.Duration(
-		"wallet.pollinterval", cfg.Wallet.PollInterval,
-		"chain poll interval for lwwallet backend",
-	)
-	f.Uint32(
-		"wallet.recoverywindow", cfg.Wallet.RecoveryWindow,
-		"address recovery look-ahead window for lwwallet",
-	)
-	f.String(
-		"wallet.password_file", cfg.Wallet.PasswordFile, "path to "+
-			"file containing wallet password for auto-unlock "+
-			"at startup (lwwallet/btcwallet)",
-	)
+	registerWalletFlags(f, cfg)
 
 	registerBitcoindFlags(f)
 
@@ -934,4 +899,79 @@ func resolveBitcoindAuth(user, pass, cookiePath string) (string, string,
 	}
 
 	return parts[0], parts[1], nil
+}
+
+// registerWalletFlags registers the wallet backend flags, including the
+// remote signer a self-managed backend can sign through.
+func registerWalletFlags(f *pflag.FlagSet, cfg *waved.Config) {
+	f.String(
+		"wallet.type", cfg.Wallet.Type,
+		"wallet backend type (lnd, lwwallet, btcwallet)",
+	)
+	f.String(
+		"wallet.esploraurl", cfg.Wallet.EsploraURL,
+		"esplora REST API URL (required for lwwallet)",
+	)
+	f.String(
+		"wallet.feeurl", cfg.Wallet.FeeURL,
+		"fee-estimate JSON endpoint URL (required for btcwallet)",
+	)
+	f.String(
+		"wallet.btcwallet_blockheaderssource",
+		cfg.Wallet.BtcwBlockSource,
+		"block header import source for btcwallet fast sync",
+	)
+	f.String(
+		"wallet.btcwallet_filterheaderssource",
+		cfg.Wallet.BtcwFilterSource,
+		"filter header import source for btcwallet fast sync",
+	)
+	f.Duration(
+		"wallet.pollinterval", cfg.Wallet.PollInterval,
+		"chain poll interval for lwwallet backend",
+	)
+	f.Uint32(
+		"wallet.recoverywindow", cfg.Wallet.RecoveryWindow,
+		"address recovery look-ahead window for lwwallet",
+	)
+	f.String(
+		"wallet.password_file", cfg.Wallet.PasswordFile, "path to "+
+			"file containing wallet password for auto-unlock "+
+			"at startup (lwwallet/btcwallet)",
+	)
+
+	registerRemoteSignerFlags(f, cfg)
+}
+
+// registerRemoteSignerFlags registers the flags that run a self-managed
+// wallet watch-only behind a remote signer.
+func registerRemoteSignerFlags(f *pflag.FlagSet, cfg *waved.Config) {
+	signer := cfg.Wallet.RemoteSigner
+
+	f.Bool(
+		"wallet.remotesigner.enable", signer.Enable, "keep every "+
+			"private key on a remote signer; the lwwallet or "+
+			"btcwallet wallet is then created from a "+
+			"watch-only bundle and holds account public keys only",
+	)
+	f.String(
+		"wallet.remotesigner.rpchost", signer.RPCHost,
+		"remote signer gRPC host:port",
+	)
+	f.String(
+		"wallet.remotesigner.macaroonpath", signer.MacaroonPath,
+		"macaroon the remote signer accepts for signing",
+	)
+	f.String(
+		"wallet.remotesigner.tlscertpath", signer.TLSCertPath,
+		"remote signer TLS certificate",
+	)
+	f.Duration(
+		"wallet.remotesigner.timeout", signer.Timeout,
+		"timeout for connecting to the remote signer (0 = 30s)",
+	)
+	f.Duration(
+		"wallet.remotesigner.requesttimeout", signer.RequestTimeout,
+		"timeout for each remote signing request (0 = 10s)",
+	)
 }

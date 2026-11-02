@@ -1,11 +1,14 @@
 package waved
 
 import (
+	"fmt"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/btcsuite/btcd/btcutil/v2/hdkeychain"
 	"github.com/btcsuite/btcd/chaincfg/v2"
+	"github.com/lightninglabs/wavelength/db"
 	"github.com/lightninglabs/wavelength/walletdesc"
 	"github.com/lightninglabs/wavelength/waverpc"
 	"github.com/lightningnetwork/lnd/aezeed"
@@ -69,46 +72,64 @@ func compatibleTestMnemonic(t *testing.T) (aezeed.Mnemonic,
 func TestValidateInitWalletSource(t *testing.T) {
 	t.Parallel()
 
+	bundle := []byte("[00000000/1017h/1h/0h]tpub/0/*")
 	tests := []struct {
 		name    string
 		req     *waverpc.InitWalletRequest
+		remote  bool
 		wantErr string
 	}{
 		{"mnemonic", &waverpc.InitWalletRequest{
 			Mnemonic: []string{
 				"a",
 			},
-		}, ""},
+		}, false, ""},
 		{"descriptors", &waverpc.InitWalletRequest{
 			Descriptors: []string{
 				"tr(x)",
 			}, BirthdayUnix: 1,
-		}, ""},
+		}, false, ""},
 		{"both", &waverpc.InitWalletRequest{
 			Mnemonic: []string{
 				"a",
 			}, Descriptors: []string{
 				"tr(x)",
 			},
-		}, "mutually exclusive"},
+		}, false, "mutually exclusive"},
 		{"descriptors with passphrase", &waverpc.InitWalletRequest{
 			Descriptors: []string{
 				"tr(x)",
 			},
 			SeedPassphrase: []byte("pass"),
-		}, "seed_passphrase"},
+		}, false, "seed_passphrase"},
 		{"birthday with mnemonic", &waverpc.InitWalletRequest{
 			Mnemonic: []string{
 				"a",
 			}, BirthdayUnix: 5,
-		}, "birthday_unix"},
+		}, false, "birthday_unix"},
+		{"bundle with signer", &waverpc.InitWalletRequest{
+			WatchOnlyBundle: bundle, BirthdayUnix: 5,
+		}, true, ""},
+		{"bundle without signer", &waverpc.InitWalletRequest{
+			WatchOnlyBundle: bundle,
+		}, false, "needs wallet.remotesigner"},
+		{"mnemonic with signer", &waverpc.InitWalletRequest{
+			Mnemonic: []string{
+				"a",
+			},
+		}, true, "must be created from a watch-only bundle"},
+		{"bundle and descriptors", &waverpc.InitWalletRequest{
+			WatchOnlyBundle: bundle, Descriptors: []string{
+				"tr(x)",
+			},
+		}, true, "mutually exclusive"},
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			err := validateInitWalletSource(tc.req)
+			err := validateInitWalletSource(tc.req, tc.remote)
 			if tc.wantErr == "" {
 				require.NoError(t, err)
 
@@ -259,5 +280,89 @@ func TestInitWalletRejectsMixedSourceWithoutClaimingState(t *testing.T) {
 		WalletState(
 			srv.server.walletState.Load(),
 		),
+	)
+}
+
+// testWatchOnlyBundle renders a full text bundle for root on regtest.
+func testWatchOnlyBundle(t *testing.T, root *hdkeychain.ExtendedKey) []byte {
+	t.Helper()
+
+	params := &chaincfg.RegressionNetParams
+	fp, err := walletdesc.Fingerprint(root)
+	require.NoError(t, err)
+	origin := walletdesc.FormatFingerprint(fp)
+
+	account := func(path ...uint32) string {
+		key := root
+		for _, step := range path {
+			key, err = key.Derive(
+				hdkeychain.HardenedKeyStart + step,
+			)
+			require.NoError(t, err)
+		}
+		pub, err := walletdesc.StandardAccountPublicKey(key, params)
+		require.NoError(t, err)
+
+		return pub.String()
+	}
+
+	lines := []string{
+		"tr([" + origin + "/86h/0h/0h]" + account(86, 0, 0) +
+			"/<0;1>/*)",
+		"wpkh([" + origin + "/84h/0h/0h]" + account(84, 0, 0) +
+			"/<0;1>/*)",
+	}
+	for family := uint32(0); family <= 255; family++ {
+		lines = append(
+			lines,
+			fmt.Sprintf(
+				"[%s/1017h/1h/%dh]%s/0/*", origin, family,
+				account(1017, 1, family),
+			),
+		)
+	}
+
+	return []byte(strings.Join(lines, "\n"))
+}
+
+// TestPrepareWalletCreateInputWatchOnly checks a bundle prepares a
+// watch-only creation input that reports the same public descriptors and
+// fingerprint as the mnemonic of the master key it came from, and records
+// the watch-only source.
+func TestPrepareWalletCreateInputWatchOnly(t *testing.T) {
+	t.Parallel()
+
+	mnemonic, root := compatibleTestMnemonic(t)
+
+	fromMnemonic, err := prepareWalletCreateInput(
+		&waverpc.InitWalletRequest{
+			Mnemonic:       mnemonic[:],
+			WalletPassword: []byte(testDescriptorPassword),
+		}, "regtest",
+	)
+	require.NoError(t, err)
+	defer fromMnemonic.zero()
+
+	fromBundle, err := prepareWalletCreateInput(
+		&waverpc.InitWalletRequest{
+			WatchOnlyBundle: testWatchOnlyBundle(t, root),
+			BirthdayUnix:    1_700_000_000,
+			WalletPassword:  []byte(testDescriptorPassword),
+		}, "regtest",
+	)
+	require.NoError(t, err)
+	defer fromBundle.zero()
+
+	require.NotNil(t, fromBundle.input.watchOnly)
+	require.Nil(t, fromBundle.input.seed)
+	require.Nil(t, fromBundle.input.rootKey)
+	require.Equal(t, int64(1_700_000_000),
+		fromBundle.input.birthday.Unix())
+	require.Equal(t, db.WalletKeySourceWatchOnly, fromBundle.source)
+	require.Equal(
+		t, fromMnemonic.rootFingerprint, fromBundle.rootFingerprint,
+	)
+	require.Equal(
+		t, fromMnemonic.publicDescriptors, fromBundle.publicDescriptors,
 	)
 }

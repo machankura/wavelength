@@ -48,7 +48,8 @@ func (s *Service) create(ctx context.Context,
 
 	mnemonic := req.GetMnemonic()
 	descriptors := req.GetDescriptors()
-	if len(mnemonic) == 0 && len(descriptors) == 0 {
+	bundle := req.GetWatchOnlyBundle()
+	if len(mnemonic) == 0 && len(descriptors) == 0 && len(bundle) == 0 {
 		// Fresh wallet: generate a seed and echo the mnemonic back so
 		// the caller can record it. Recording the mnemonic is the
 		// caller's responsibility; once Create returns, the wallet is
@@ -67,13 +68,14 @@ func (s *Service) create(ctx context.Context,
 
 	initResp, err := s.deps.RPCServer.InitWallet(
 		ctx, &waverpc.InitWalletRequest{
-			Mnemonic:       mnemonic,
-			WalletPassword: req.GetWalletPassword(),
-			SeedPassphrase: req.GetSeedPassphrase(),
-			RecoverState:   req.GetRecoverState(),
-			RecoveryWindow: req.GetRecoveryWindow(),
-			Descriptors:    descriptors,
-			BirthdayUnix:   req.GetBirthdayUnix(),
+			Mnemonic:        mnemonic,
+			WalletPassword:  req.GetWalletPassword(),
+			SeedPassphrase:  req.GetSeedPassphrase(),
+			RecoverState:    req.GetRecoverState(),
+			RecoveryWindow:  req.GetRecoveryWindow(),
+			Descriptors:     descriptors,
+			BirthdayUnix:    req.GetBirthdayUnix(),
+			WatchOnlyBundle: bundle,
 		},
 	)
 	if err != nil {
