@@ -100,11 +100,15 @@ func TestAccountKeyWallet(t *testing.T) {
 	dir := t.TempDir()
 	cache := blockcache.NewBlockCache(10)
 
+	keys := seedAccountKeys(t, params, seed)
 	created, err := walletcore.CreateAccountSigning(
-		accountWalletConfig(params, dir),
-		seedAccountKeys(t, params, seed), accountPassword, cache,
+		accountWalletConfig(params, dir), keys, accountPassword, cache,
 	)
 	require.NoError(t, err)
+
+	// The caller still owns its keys; wiping them leaves the signer's
+	// own copy intact.
+	keys.Zero()
 	require.NotNil(t, created.KeyRing)
 	requireMatchesSeedWallet(t, created.KeyRing, signer)
 	created.Conn.Stop()

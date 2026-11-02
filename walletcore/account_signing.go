@@ -23,7 +23,8 @@ var ErrWatchOnlyWithoutSigner = errors.New("the wallet database holds public " +
 // CreateAccountSigning creates a wallet from account-level private keys:
 // a watch-only btcwallet from their public half, the keys encrypted under
 // password in the same database, and lnd's RPC key ring signing through
-// an in-process account signer. The result owns keys. cfg.PublicPass stays
+// an in-process account signer. The signer works on its own copy of keys,
+// so the caller still owns and wipes keys. cfg.PublicPass stays
 // the static public passphrase, as for a seed wallet: the keystore is what
 // password protects.
 func CreateAccountSigning(cfg btcwallet.Config, keys *walletdesc.AccountKeys,
@@ -47,7 +48,14 @@ func CreateAccountSigning(cfg btcwallet.Config, keys *walletdesc.AccountKeys,
 		return nil, fmt.Errorf("store account keys: %w", err)
 	}
 
-	return newAccountSigning(btcw, keys, cfg)
+	signerKeys, err := keys.Clone()
+	if err != nil {
+		_ = db.Close()
+
+		return nil, err
+	}
+
+	return newAccountSigning(btcw, signerKeys, cfg)
 }
 
 // OpenExisting opens an existing self-managed wallet database of either

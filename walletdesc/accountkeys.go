@@ -83,6 +83,25 @@ func (k *AccountKeys) Bundle() (*WatchOnlyBundle, error) {
 	return bundle, nil
 }
 
+// Clone returns an independent copy, so the copy and the original can be
+// wiped separately.
+func (k *AccountKeys) Clone() (*AccountKeys, error) {
+	clone := &AccountKeys{MasterFingerprint: k.MasterFingerprint}
+	for _, acct := range k.Accounts {
+		key, err := hdkeychain.NewKeyFromString(acct.Key.String())
+		if err != nil {
+			clone.Zero()
+
+			return nil, err
+		}
+
+		acct.Key = key
+		clone.Accounts = append(clone.Accounts, acct)
+	}
+
+	return clone, nil
+}
+
 // Zero wipes every private key.
 func (k *AccountKeys) Zero() {
 	for _, acct := range k.Accounts {
