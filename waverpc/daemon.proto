@@ -479,6 +479,21 @@ message InitWalletRequest {
     // recovery_window is the number of key indexes to scan per recovery key
     // family. Zero uses the daemon wallet.recoverywindow config value.
     uint32 recovery_window = 5;
+
+    // descriptors are private output descriptors that all share one BIP32
+    // master key, for example tr(xprv.../86h/0h/0h/<0;1>/*). The daemon
+    // builds the wallet from that master key instead of a mnemonic.
+    // Mutually exclusive with mnemonic and seed_passphrase. Only tr()
+    // under purpose 86 and wpkh() under purpose 84 are accepted, with coin
+    // type 0' on every network and account 0. Descriptors are as secret as
+    // a seed.
+    repeated string descriptors = 6;
+
+    // birthday_unix is the earliest time, in Unix seconds, at which the
+    // descriptor keys may have received funds. It bounds the first rescan.
+    // Zero scans from genesis, which is slow but never misses funds. Only
+    // used with descriptors: a mnemonic carries its own birthday.
+    int64 birthday_unix = 7;
 }
 
 message InitWalletResponse {
@@ -510,6 +525,15 @@ message InitWalletResponse {
     // recovered_oor_events is the number of OOR recipient events processed
     // during recovery.
     uint32 recovered_oor_events = 7;
+
+    // descriptors are the public output descriptors the new wallet watches,
+    // one per script type, with key origin and checksum. They are safe to
+    // share with watch-only software. Set for every self-managed wallet.
+    repeated string descriptors = 8;
+
+    // root_fingerprint is the hex-encoded BIP32 fingerprint of the wallet's
+    // master key.
+    string root_fingerprint = 9;
 }
 
 message UnlockWalletRequest {

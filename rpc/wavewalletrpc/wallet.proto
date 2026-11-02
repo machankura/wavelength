@@ -14,12 +14,13 @@ option go_package = "github.com/lightninglabs/wavelength/rpc/wavewalletrpc";
 // registered only when the daemon is built with the wavewalletrpc build tag
 // (which also requires swapruntime).
 service WalletService {
-    // Create initializes a new wallet from a freshly generated aezeed
-    // mnemonic. The daemon generates the seed, encrypts it with the
-    // supplied password, and returns the mnemonic so the caller can record
-    // it. For recovery flows the caller MAY supply an existing mnemonic in
-    // the request; in that case the same mnemonic is echoed back. Proxies
-    // waverpc.GenSeed + waverpc.InitWallet server-side.
+    // Create initializes a new wallet. With no seed material the daemon
+    // generates an aezeed mnemonic, encrypts the wallet with the supplied
+    // password, and returns the mnemonic so the caller can record it. For
+    // recovery flows the caller MAY supply an existing mnemonic, which is
+    // echoed back, or private output descriptors, in which case no
+    // mnemonic is returned. Proxies waverpc.GenSeed + waverpc.InitWallet
+    // server-side.
     rpc Create (CreateRequest) returns (CreateResponse);
 
     // Unlock decrypts the on-disk wallet seed using the supplied password
@@ -264,6 +265,18 @@ message CreateRequest {
     // recovery_window is the number of key indexes to scan per recovery key
     // family. Zero uses the daemon wallet.recoverywindow config value.
     uint32 recovery_window = 5;
+
+    // descriptors are private output descriptors that all share one BIP32
+    // master key. When set, the wallet is built from that master key
+    // instead of a mnemonic, and the response carries no mnemonic.
+    // Mutually exclusive with mnemonic and seed_passphrase. See
+    // waverpc.InitWalletRequest.descriptors for the accepted forms.
+    repeated string descriptors = 6;
+
+    // birthday_unix is the earliest time, in Unix seconds, at which the
+    // descriptor keys may have received funds. Zero scans from genesis.
+    // Only used with descriptors.
+    int64 birthday_unix = 7;
 }
 
 // CreateResponse returns the wallet mnemonic and identity, plus a summary of
@@ -303,6 +316,14 @@ message CreateResponse {
     // recovered_oor_events is the number of OOR recipient events processed
     // during recovery.
     uint32 recovered_oor_events = 8;
+
+    // descriptors are the public output descriptors the new wallet watches,
+    // with key origin and checksum. Safe to share with watch-only software.
+    repeated string descriptors = 9;
+
+    // root_fingerprint is the hex-encoded BIP32 fingerprint of the wallet's
+    // master key.
+    string root_fingerprint = 10;
 }
 
 // UnlockRequest carries the password used to decrypt the on-disk seed for
