@@ -54,8 +54,10 @@ VTXOs.
 - [x] (2026-11-02) Re-audited after pulling 149 new commits (HEAD
   `3b7ed47f`): the plan's assumptions still hold; see `Surprises &
   Discoveries`. Added the watch-only and account-level extension design.
-- [ ] Milestone 0: prototype root-key wallet creation and prove key
-  equivalence with the seed path.
+- [x] (2026-11-02) Milestone 0: prototype root-key wallet creation and prove
+  key equivalence with the seed path. `TestRootKeyWalletMatchesSeedWallet`
+  in `walletcore/rootkey_prototype_test.go` passes on regtest and mainnet;
+  the three open questions are answered in `Surprises & Discoveries`.
 - [ ] Milestone 1: `walletdesc` package that parses, checksums and validates
   descriptors.
 - [ ] Milestone 2: wallet backends accept a root extended key instead of a
@@ -153,6 +155,44 @@ VTXOs.
   back from an existing wallet. Exporting private descriptors from a wallet
   that was created from a mnemonic therefore needs either an upstream accessor
   or a different export shape. Milestone 0 settles which.
+
+- Observation (Milestone 0): a btcwallet built with
+  `Loader.CreateNewWalletExtendedKey` from `hdkeychain.NewMaster(seed)`
+  derives the same keys as one built with `Loader.CreateNewWallet(seed)`: all
+  seven families (6, 21, 42, 43, 44, 45, 202) at indexes 0, 1 and 99, and
+  the BIP86 and BIP84 account-0 xpubs, on regtest and mainnet.
+  `waved.WalletIdentityPubKeyFromSeed` matches family 6, index 0.
+  Evidence:
+
+      --- PASS: TestRootKeyWalletMatchesSeedWallet (0.00s)
+          --- PASS: TestRootKeyWalletMatchesSeedWallet/mainnet (3.95s)
+          --- PASS: TestRootKeyWalletMatchesSeedWallet/regtest (3.97s)
+
+- Observation (Milestone 0, question 1): a wallet built outside lnd's
+  wrapper can be handed to `lnwallet/btcwallet.New` through `Config.Wallet`.
+  `lwwallet` and `btcwbackend` close the database through
+  `InternalWallet().Database().Close()` (`lwwallet/wallet.go`,
+  `btcwbackend/wallet.go`), not through the loader, so ownership of the
+  handle is unchanged. The browser loader options (`walletdb_wasm.go`) are
+  loader options, and both `CreateNewWallet` and `CreateNewWalletExtendedKey`
+  go through the same `Loader.createNewWallet`, so the browser build needs no
+  separate path.
+
+- Observation (Milestone 0, question 2): btcwallet does not record the master
+  key fingerprint for the default accounts. `AccountProperties(scope,
+  0).MasterKeyFingerprint` is `00000000` for both the seed-created and the
+  root-key-created wallet. Evidence:
+
+      scope m/86'/0': master fingerprint seed=00000000 root=00000000
+      scope m/84'/0': master fingerprint seed=00000000 root=00000000
+
+  Export therefore cannot learn the origin fingerprint from btcwallet.
+
+- Observation (Milestone 0, question 3): btcwallet exports no function that
+  returns an account-level or master extended private key. The only
+  exported private derivation, `Wallet.DeriveFromKeyPath`, returns a bare
+  `*btcec.PrivateKey` with no chain code, which cannot be rendered as an
+  `xprv`.
 
 - Observation: every downstream package (TypeScript web and React Native,
   native WalletKit, WDK) reaches Go only through the `sdk/wavewalletdk/mobile`
@@ -287,6 +327,31 @@ VTXOs.
   Rationale: avoids a database migration and a second source of truth; the
   descriptors can always be recomputed from btcwallet when the wallet is
   unlocked.
+  Date/Author: 2026-11-02, plan author. Superseded in part by the next
+  entry.
+
+- Decision (after Milestone 0): Wavelength persists the root key fingerprint
+  at wallet creation, for both mnemonic and descriptor wallets, in a new
+  single-row table in the daemon database added by an sqlc migration. Public
+  export uses it as the key origin. A wallet created before this change has
+  no stored fingerprint. Its public export omits the origin, which BIP380
+  allows, until the user supplies the mnemonic or root descriptor once, at
+  which point the fingerprint is computed and stored.
+  Rationale: Milestone 0 showed btcwallet stores `00000000` for the default
+  accounts, so there is no other source for the fingerprint.
+  Date/Author: 2026-11-02, plan author.
+
+- Decision (after Milestone 0): private export needs no upstream btcwallet
+  change. `ListWalletDescriptors` with `include_private` requires the caller
+  to resupply the mnemonic (with its passphrase) or the root descriptor.
+  `waved` recomputes the root key, checks it against the open wallet's BIP86
+  and BIP84 account xpubs and identity key, refuses on any mismatch, and only
+  then renders the private descriptors.
+  Rationale: btcwallet exposes no extended private key (Milestone 0,
+  question 3). Re-entering the secret also stops an unlocked daemon from
+  leaking its root key to anyone holding an admin macaroon. The verification
+  step makes this a safe "convert my mnemonic to descriptors" operation that
+  cannot produce descriptors for a different wallet.
   Date/Author: 2026-11-02, plan author.
 
 - Decision: W2 supports split signing. Fund keys (`86'` account, families 6,
