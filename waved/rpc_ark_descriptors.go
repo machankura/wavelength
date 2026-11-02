@@ -16,6 +16,13 @@ import (
 	"google.golang.org/grpc/status"
 )
 
+// Short names for the exported Ark output kinds.
+const (
+	arkKindBoarding   = waverpc.ArkOutputKind_ARK_OUTPUT_KIND_BOARDING
+	arkKindVTXO       = waverpc.ArkOutputKind_ARK_OUTPUT_KIND_VTXO
+	arkKindOORReceive = waverpc.ArkOutputKind_ARK_OUTPUT_KIND_OOR_RECEIVE
+)
+
 // ListArkOutputDescriptors returns one rawtr() descriptor per Ark output the
 // wallet knows about, read from the stored output scripts. Unlike
 // ListWalletDescriptors these describe individual outputs, not ranges: the
@@ -54,7 +61,7 @@ func (r *RPCServer) ListArkOutputDescriptors(ctx context.Context,
 		return nil
 	}
 
-	if include(waverpc.ArkOutputKind_ARK_OUTPUT_KIND_BOARDING) {
+	if include(arkKindBoarding) {
 		addrs, err := r.server.newBoardingStore().
 			ListAllBoardingAddresses(ctx)
 		if err != nil {
@@ -67,8 +74,7 @@ func (r *RPCServer) ListArkOutputDescriptors(ctx context.Context,
 			if err == nil {
 				err = add(
 					arkOutputDescriptor(
-						waverpc.ArkOutputKind_ARK_OUTPUT_KIND_BOARDING,
-						pkScript,
+						arkKindBoarding, pkScript,
 						addr.KeyDesc.KeyLocator,
 						addr.OperatorKey,
 						addr.ExitDelay,
@@ -82,7 +88,7 @@ func (r *RPCServer) ListArkOutputDescriptors(ctx context.Context,
 		}
 	}
 
-	if include(waverpc.ArkOutputKind_ARK_OUTPUT_KIND_VTXO) {
+	if include(arkKindVTXO) {
 		if r.server.vtxoStore == nil {
 			return nil, status.Error(
 				codes.Unavailable, "VTXO store not initialized",
@@ -100,9 +106,9 @@ func (r *RPCServer) ListArkOutputDescriptors(ctx context.Context,
 			// which is not decoded here; zero means unknown.
 			err := add(
 				arkOutputDescriptor(
-					waverpc.ArkOutputKind_ARK_OUTPUT_KIND_VTXO,
-					v.PkScript, v.ClientKey.KeyLocator,
-					v.OperatorKey, 0, fn.Some(v.Outpoint),
+					arkKindVTXO, v.PkScript,
+					v.ClientKey.KeyLocator, v.OperatorKey,
+					0, fn.Some(v.Outpoint),
 				),
 			)
 			if err != nil {
@@ -111,7 +117,7 @@ func (r *RPCServer) ListArkOutputDescriptors(ctx context.Context,
 		}
 	}
 
-	if include(waverpc.ArkOutputKind_ARK_OUTPUT_KIND_OOR_RECEIVE) {
+	if include(arkKindOORReceive) {
 		store, err := r.newOORReceiveScriptStore()
 		if err != nil {
 			return nil, status.Errorf(codes.Internal, "%v", err)
@@ -131,8 +137,8 @@ func (r *RPCServer) ListArkOutputDescriptors(ctx context.Context,
 
 			err := add(
 				arkOutputDescriptor(
-					waverpc.ArkOutputKind_ARK_OUTPUT_KIND_OOR_RECEIVE,
-					rec.PkScript, rec.ClientKey.KeyLocator,
+					arkKindOORReceive, rec.PkScript,
+					rec.ClientKey.KeyLocator,
 					rec.OperatorPubKey, exitDelay,
 					fn.None[wire.OutPoint](),
 				),
