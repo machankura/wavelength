@@ -32,7 +32,8 @@ import (
 func WalletSeedFromMnemonic(mnemonic []string, seedPassphrase,
 	walletPassword []byte) ([rawSeedLen]byte, time.Time, error) {
 
-	// Validate the mnemonic length.
+	// Validate the mnemonic length before the password, so the error
+	// order matches what callers have always seen.
 	if len(mnemonic) != aezeed.NumMnemonicWords {
 		return [rawSeedLen]byte{}, time.Time{}, fmt.Errorf("mnemonic "+
 			"must be %d words, got %d", aezeed.NumMnemonicWords,
@@ -44,9 +45,25 @@ func WalletSeedFromMnemonic(mnemonic []string, seedPassphrase,
 		return [rawSeedLen]byte{}, time.Time{}, err
 	}
 
+	return MnemonicSeed(mnemonic, seedPassphrase)
+}
+
+// MnemonicSeed decodes a 24-word aezeed mnemonic into the daemon's raw seed
+// and birthday, without any wallet password check. It is used where the
+// mnemonic itself is the authorization, such as private descriptor export.
+func MnemonicSeed(mnemonic []string, seedPassphrase []byte) ([rawSeedLen]byte,
+	time.Time, error) {
+
+	if len(mnemonic) != aezeed.NumMnemonicWords {
+		return [rawSeedLen]byte{}, time.Time{}, fmt.Errorf("mnemonic "+
+			"must be %d words, got %d", aezeed.NumMnemonicWords,
+			len(mnemonic))
+	}
+
 	// Convert the string slice to an aezeed.Mnemonic array.
 	var m aezeed.Mnemonic
 	copy(m[:], mnemonic)
+	defer clear(m[:])
 
 	// Derive the raw seed and birthday from the mnemonic.
 	seed, birthday, err := MnemonicToSeedWithBirthday(m, seedPassphrase)
@@ -80,36 +97,42 @@ func WalletRootFromDescriptors(descriptors []string, network string,
 }
 
 // WalletPublicDescriptors renders the public output descriptors a wallet
-// built from root watches, together with the master key fingerprint as
-// eight hex characters. The output is safe to share and log.
+// built from root watches, together with the master key fingerprint. The
+// output is safe to share and log.
 func WalletPublicDescriptors(root *hdkeychain.ExtendedKey, network string) (
-	[]string, string, error) {
+	[]string, uint32, error) {
 
 	chainParams, err := networkToChainParams(network)
 	if err != nil {
-		return nil, "", err
+		return nil, 0, err
 	}
 
 	public, err := walletdesc.CanonicalPublic(root, chainParams)
 	if err != nil {
-		return nil, "", err
+		return nil, 0, err
 	}
 
 	texts := make([]string, 0, len(public))
 	for i := range public {
 		text, err := public[i].Render(false)
 		if err != nil {
-			return nil, "", err
+			return nil, 0, err
 		}
 		texts = append(texts, text)
 	}
 
 	fp, err := walletdesc.Fingerprint(root)
 	if err != nil {
-		return nil, "", err
+		return nil, 0, err
 	}
 
-	return texts, fmt.Sprintf("%08x", fp), nil
+	return texts, fp, nil
+}
+
+// FormatFingerprint renders a BIP32 fingerprint as eight hex characters,
+// the form descriptors and RPC responses use.
+func FormatFingerprint(fp uint32) string {
+	return fmt.Sprintf("%08x", fp)
 }
 
 // BirthdayFromUnix converts a request's Unix-seconds birthday into the

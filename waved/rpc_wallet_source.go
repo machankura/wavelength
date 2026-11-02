@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/btcsuite/btcd/btcutil/v2/hdkeychain"
+	"github.com/lightninglabs/wavelength/db"
 	"github.com/lightninglabs/wavelength/waverpc"
 )
 
@@ -13,7 +14,8 @@ import (
 type preparedWalletCreate struct {
 	input             walletCreateInput
 	publicDescriptors []string
-	rootFingerprint   string
+	rootFingerprint   uint32
+	source            db.WalletKeySource
 
 	// zero wipes the seed or master key behind input.
 	zero func()
@@ -86,6 +88,7 @@ func prepareWalletCreateInput(req *waverpc.InitWalletRequest,
 			},
 			publicDescriptors: public,
 			rootFingerprint:   fp,
+			source:            db.WalletKeySourceDescriptors,
 			zero:              wd.Zero,
 		}, nil
 	}
@@ -127,6 +130,7 @@ func prepareWalletCreateInput(req *waverpc.InitWalletRequest,
 		},
 		publicDescriptors: public,
 		rootFingerprint:   fp,
+		source:            db.WalletKeySourceSeed,
 		zero:              zero,
 	}, nil
 }

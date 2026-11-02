@@ -111,7 +111,7 @@ func newWavedRPCPermissions() map[string][]bakery.Op {
 	)
 	grant(
 		daemon, entityInfo, "write", "GenSeed", "InitWallet",
-		"UnlockWallet",
+		"UnlockWallet", "ListWalletDescriptors",
 	)
 	grant(
 		daemon, entityVTXO, "read", "ListVTXOs",
