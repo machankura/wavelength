@@ -20,6 +20,9 @@ http:
     - selector: waverpc.DaemonService.UnlockWallet
       post: /v1/daemon/unlock-wallet
       body: "*"
+    - selector: waverpc.DaemonService.ListWalletDescriptors
+      post: /v1/daemon/list-wallet-descriptors
+      body: "*"
     - selector: waverpc.DaemonService.GetBalance
       post: /v1/daemon/get-balance
       body: "*"

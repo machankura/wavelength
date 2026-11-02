@@ -29,6 +29,17 @@ service DaemonService {
     // lwwallet mode when the wallet is locked.
     rpc UnlockWallet (UnlockWalletRequest) returns (UnlockWalletResponse);
 
+    // ListWalletDescriptors returns the output descriptors of the
+    // self-managed wallet: by default the public account-level tr and wpkh
+    // descriptors, which are safe to import into watch-only software. With
+    // include_private the caller must resupply the wallet's mnemonic or
+    // root descriptors; the daemon checks them against the open wallet and
+    // only then renders private descriptors, so an unlocked daemon never
+    // reveals key material on its own. Only available in lwwallet and
+    // btcwallet mode once the wallet is ready.
+    rpc ListWalletDescriptors (ListWalletDescriptorsRequest)
+        returns (ListWalletDescriptorsResponse);
+
     // GetBalance returns the current balance of the wallet, broken down
     // by boarding (on-chain) and VTXO (off-chain) balances.
     rpc GetBalance (GetBalanceRequest) returns (GetBalanceResponse);
@@ -547,6 +558,38 @@ message UnlockWalletResponse {
     // of the unlocked wallet. This is the same key reported by
     // GetInfoResponse.identity_pubkey and used for Ark/OOR signing flows.
     string identity_pubkey = 1;
+}
+
+message ListWalletDescriptorsRequest {
+    // include_private asks for private descriptors. It requires mnemonic or
+    // descriptors to be set.
+    bool include_private = 1;
+
+    // mnemonic is the wallet's 24-word aezeed mnemonic, resupplied to
+    // authorize private export. Mutually exclusive with descriptors.
+    repeated string mnemonic = 2;
+
+    // seed_passphrase is the optional aezeed passphrase for mnemonic.
+    bytes seed_passphrase = 3;
+
+    // descriptors are the wallet's private root descriptors, resupplied to
+    // authorize private export. Mutually exclusive with mnemonic.
+    repeated string descriptors = 4;
+}
+
+message ListWalletDescriptorsResponse {
+    // root_fingerprint is the hex-encoded BIP32 fingerprint of the wallet's
+    // master key. Empty for a wallet created before the daemon recorded
+    // fingerprints and not yet exported with include_private; its public
+    // descriptors then carry no key origin.
+    string root_fingerprint = 1;
+
+    // descriptors are the tr and wpkh descriptors with checksums. They are
+    // private exactly when includes_private is true.
+    repeated string descriptors = 2;
+
+    // includes_private reports whether descriptors contain private keys.
+    bool includes_private = 3;
 }
 
 message GetBalanceRequest {
