@@ -12,6 +12,7 @@ import (
 	"github.com/lightninglabs/wavelength/db"
 	"github.com/lightninglabs/wavelength/indexer"
 	"github.com/lightninglabs/wavelength/lib/arkscript"
+	"github.com/lightninglabs/wavelength/lib/keyfamily"
 	"github.com/lightninglabs/wavelength/oor"
 	fn "github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/keychain"
@@ -34,7 +35,7 @@ const (
 	// "address manager is watching-only". 202 keeps us inside the
 	// pre-provisioned range and continues the ark operator block
 	// (sweep=200, operator=201) used on the server side.
-	oorReceiveKeyFamily = keychain.KeyFamily(202)
+	oorReceiveKeyFamily = keyfamily.OORReceive
 )
 
 // DefaultOORReceiveKeyFamily returns the key family used for

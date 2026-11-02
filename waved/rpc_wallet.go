@@ -17,6 +17,7 @@ import (
 	"github.com/lightninglabs/lndclient"
 	"github.com/lightninglabs/wavelength/btcwbackend"
 	"github.com/lightninglabs/wavelength/db"
+	"github.com/lightninglabs/wavelength/lib/keyfamily"
 	"github.com/lightninglabs/wavelength/lwwallet"
 	"github.com/lightninglabs/wavelength/swaprpc"
 	"github.com/lightninglabs/wavelength/walletcore"
@@ -30,7 +31,7 @@ import (
 // identityKeyFamily is the key family used to derive the daemon wallet
 // identity public key. This matches lnd's KeyFamilyNodeKey (family 6) so the
 // derived key sits at m/1017'/coinType'/6'/0/0.
-const identityKeyFamily = keychain.KeyFamilyNodeKey
+const identityKeyFamily = keyfamily.Identity
 
 const receiveAuthKeyTag = "wavelength/swap/receive-auth/v1"
 

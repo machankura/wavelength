@@ -22,6 +22,7 @@ import (
 	"github.com/lightninglabs/wavelength/ledger"
 	"github.com/lightninglabs/wavelength/lib/actormsg"
 	"github.com/lightninglabs/wavelength/lib/arkscript"
+	"github.com/lightninglabs/wavelength/lib/keyfamily"
 	"github.com/lightninglabs/wavelength/lib/types"
 	"github.com/lightninglabs/wavelength/metrics"
 	"github.com/lightningnetwork/lnd/clock"
@@ -31,7 +32,7 @@ import (
 const (
 	// BoardingKeyFamily is the BIP32 key family used for deriving boarding
 	// address keys.
-	BoardingKeyFamily = 42
+	BoardingKeyFamily = keyfamily.Boarding
 
 	// MinBoardingConfs is the floor on the number of confirmations
 	// required before a boarding UTXO is recorded as a confirmed

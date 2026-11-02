@@ -48,6 +48,15 @@ message interfaces, and core Ark types.
 - `TriggerBoardMsg`, `RegisterIntentMsg` — Cross-package messages from wallet→round.
 - `SelectAndReserveSpendRequest`, `ReserveForfeitRequest`, etc. — VTXO manager admission types.
 
+### lib/keyfamily
+- `Registry` — Every lnd-style key family (`m/1017'/coin'/family'`) Wavelength
+  derives, each classed `Funds` (in output scripts or signing spends: 6, 42,
+  44, 45, 202) or `Auth` (authentication only: 21, 43). Other packages alias
+  these constants rather than declaring numbers; a test walks the repository
+  and fails on a numeric family declared anywhere else, and another pins the
+  table, so a new family cannot land unclassified. Every family stays at or
+  below `MaxFamily` (255), the accounts a watch-only wallet can derive.
+
 ### lib/recovery
 - `Proof` — Immutable unilateral-exit recovery graph for one target outpoint.
 - `Session` / `SessionState` — Mutable planning state and its durable TLV

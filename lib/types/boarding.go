@@ -9,6 +9,7 @@ import (
 	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/lightninglabs/wavelength/lib/arkscript"
 	"github.com/lightninglabs/wavelength/lib/batchschedule"
+	"github.com/lightninglabs/wavelength/lib/keyfamily"
 	"github.com/lightninglabs/wavelength/lib/tree"
 	fn "github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/keychain"
@@ -18,14 +19,14 @@ const (
 	// VTXOOwnerKeyFamily is the key family used for long-lived VTXO owner
 	// keys. Owner keys are committed into the VTXO policy and must remain
 	// stable across refreshes.
-	VTXOOwnerKeyFamily keychain.KeyFamily = 44
+	VTXOOwnerKeyFamily = keyfamily.VTXOOwner
 
 	// VTXOSigningKeyFamily is the key family used for per-round VTXO
 	// MuSig2 signing keys. It is intentionally distinct from LND's
 	// internal multisig family and from the server operator family so a
 	// client sharing an LND signer with the server cannot derive the
 	// operator key as its first VTXO signing key.
-	VTXOSigningKeyFamily keychain.KeyFamily = 45
+	VTXOSigningKeyFamily = keyfamily.VTXOSigning
 )
 
 // OperatorTerms holds the information that the operator will share with

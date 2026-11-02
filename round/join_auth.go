@@ -15,6 +15,7 @@ import (
 	"github.com/btcsuite/btcwallet/waddrmgr"
 	"github.com/lightninglabs/wavelength/lib/arkscript"
 	"github.com/lightninglabs/wavelength/lib/bip322"
+	"github.com/lightninglabs/wavelength/lib/keyfamily"
 	"github.com/lightninglabs/wavelength/lib/types"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
@@ -27,7 +28,7 @@ const (
 
 	// joinRoundAuthIdentifierKeyFamily is the BIP32 key family used
 	// for per-request join authorization identifier keys.
-	joinRoundAuthIdentifierKeyFamily keychain.KeyFamily = 43
+	joinRoundAuthIdentifierKeyFamily = keyfamily.RoundJoinAuth
 )
 
 // joinAuthInput carries all data required to produce one script-path
