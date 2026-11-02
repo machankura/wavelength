@@ -25,6 +25,12 @@ SDK and tests share one set of rules.
   one `tr()`/`wpkh()` account descriptor or `[fp/1017h/coinh/familyh]KEY/0/*`
   key-family entry per line. Returns `*WatchOnlyBundle` with accounts in
   import order and keys normalized to standard `xpub`/`tpub` versions.
+- `ParseAccountKeys(texts, params)` — account-level private keys: on-chain
+  `tr()`/`wpkh()` account xprvs plus the key families as one coin-level
+  `[fp/1017h/coinh]XPRV` or one `[fp/1017h/coinh/familyh]XPRV/0/*` per
+  family. Validated through the same rules as a watch-only bundle;
+  `AccountKeys.Bundle()` is the public half. `HasAccountKeys` routes a
+  descriptor set to this parser or to `Parse`.
 - `Checksum` / `AddChecksum` — the BIP380 checksum.
 - Sentinel errors (`ErrWatchOnlyDescriptor`, `ErrNotRootKey`,
   `ErrUnsupportedPath`, `ErrLegacyDerivationMismatch`, ...) — every `Parse`
@@ -58,6 +64,13 @@ SDK and tests share one set of rules.
   child index says: a gap would shift every later family onto the wrong key.
   Each key's depth and child index must match its stated account, and every
   entry must be public.
+- Account keys derive below the supplied key with standard BIP32. Against a
+  seed wallet that agrees on every family, except that a coin-level key
+  with a leading zero byte gives a different family 0 under btcwallet,
+  which Wavelength never uses. A leading zero higher up the path (on
+  `m/1017'`) is invisible from the coin-level key: software that exported
+  it with standard BIP32 and btcwallet from the same seed disagree on every
+  family. walletcore's `TestLegacyDerivationFamilyScope` pins this.
 
 ## Deep Docs
 
