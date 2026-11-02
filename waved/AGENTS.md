@@ -131,8 +131,9 @@ For field-level detail, use `go doc github.com/lightninglabs/wavelength/waved.<S
 - Wallet transitions `None → Locked → Ready` (or direct to `Ready` if a seed
   or root key is provided). Self-managed creation goes through
   `walletCreateInput` (seed or BIP32 master key plus birthday); its zero
-  value opens the existing database. Three wallet backends: LND, lightweight (`lwwallet`), or
-  neutrino-backed (`btcwallet` via `btcwbackend`).
+  value opens the existing database. Three wallet backends: LND,
+  lightweight (`lwwallet`), or neutrino-backed (`btcwallet` via
+  `btcwbackend`).
 - `WaitForWalletServicesReady` resolves after wallet-dependent actors and
   mailbox ingress start, or with the first error before that boundary.
   `DaemonReady` remains the later full-startup signal.

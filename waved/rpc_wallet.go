@@ -435,6 +435,13 @@ func (r *RPCServer) InitWallet(ctx context.Context,
 				"mode")
 	}
 
+	// Reject contradictory seed material before claiming any state, so
+	// a malformed request never flips the wallet state machine.
+	if err := validateInitWalletSource(req); err != nil {
+		return nil, status.Errorf(codes.InvalidArgument, "unable to "+
+			"initialize wallet: %v", err)
+	}
+
 	// Atomically check that no wallet exists and claim the
 	// transition so a concurrent InitWallet call cannot race past
 	// this point. The claimed state is Unlocking (not Locked) so a
@@ -477,13 +484,10 @@ func (r *RPCServer) InitWallet(ctx context.Context,
 		return target
 	}
 
-	// Delegate to the package-level function that validates the
-	// mnemonic and password and derives the seed. This logic is
-	// extracted so an SDK can call it directly without going
-	// through gRPC.
-	seed, birthday, err := WalletSeedFromMnemonic(
-		req.Mnemonic, req.SeedPassphrase, req.WalletPassword,
-	)
+	// Turn the request's mnemonic or descriptors into creation input.
+	// The derivation itself lives in package-level functions so an SDK
+	// can call it directly without going through gRPC.
+	created, err := prepareWalletCreateInput(req, r.server.cfg.Network)
 	if err != nil {
 		rollbackState()
 
@@ -491,20 +495,16 @@ func (r *RPCServer) InitWallet(ctx context.Context,
 			"initialize wallet: %v", err)
 	}
 
-	// The raw seed only needs to survive until the wallet backend
-	// has copied it into btcwallet's passphrase-encrypted key
-	// store; wipe our copy on the way out as best-effort hygiene.
-	defer zeroBytes(seed[:])
+	// The key material only needs to survive until the wallet backend
+	// has copied it into btcwallet's passphrase-encrypted key store;
+	// wipe our copy on the way out as best-effort hygiene.
+	defer created.zero()
 
-	// Create the wallet database from the derived seed, encrypted
-	// under the wallet password. The seed is persisted only inside
-	// btcwallet's own passphrase-encrypted key store.
+	// Create the wallet database from the seed or master key, encrypted
+	// under the wallet password. The key material is persisted only
+	// inside btcwallet's own passphrase-encrypted key store.
 	if err := r.server.startSelfManagedWallet(
-		ctx, walletCreateInput{
-			seed:     seed[:],
-			birthday: birthday,
-		},
-		req.WalletPassword,
+		ctx, created.input, req.WalletPassword,
 	); err != nil {
 
 		target := rollbackState()
@@ -550,7 +550,9 @@ func (r *RPCServer) InitWallet(ctx context.Context,
 	}
 
 	resp := &waverpc.InitWalletResponse{
-		IdentityPubkey: identityPubkey,
+		IdentityPubkey:  identityPubkey,
+		Descriptors:     created.publicDescriptors,
+		RootFingerprint: created.rootFingerprint,
 	}
 	if recoveryResult != nil {
 		recoveryResult.apply(resp)

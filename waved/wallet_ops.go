@@ -17,6 +17,7 @@ import (
 	"github.com/lightninglabs/wavelength/oor"
 	"github.com/lightninglabs/wavelength/vtxo"
 	"github.com/lightninglabs/wavelength/walletcore"
+	"github.com/lightninglabs/wavelength/walletdesc"
 	"github.com/lightninglabs/wavelength/waverpc"
 	"github.com/lightningnetwork/lnd/aezeed"
 	"github.com/lightningnetwork/lnd/keychain"
@@ -55,6 +56,77 @@ func WalletSeedFromMnemonic(mnemonic []string, seedPassphrase,
 	}
 
 	return seed, birthday, nil
+}
+
+// WalletRootFromDescriptors validates private output descriptors and the
+// wallet password, and returns the BIP32 master key the descriptors share.
+// It is the descriptor counterpart of WalletSeedFromMnemonic, extracted so
+// an SDK can reuse it without going through gRPC. Errors from descriptor
+// validation wrap a walletdesc sentinel error and never carry key
+// material. The caller owns the result and must call Zero on it.
+func WalletRootFromDescriptors(descriptors []string, network string,
+	walletPassword []byte) (*walletdesc.WalletDescriptors, error) {
+
+	if err := ValidateWalletPassword(walletPassword); err != nil {
+		return nil, err
+	}
+
+	chainParams, err := networkToChainParams(network)
+	if err != nil {
+		return nil, err
+	}
+
+	return walletdesc.Parse(descriptors, chainParams)
+}
+
+// WalletPublicDescriptors renders the public output descriptors a wallet
+// built from root watches, together with the master key fingerprint as
+// eight hex characters. The output is safe to share and log.
+func WalletPublicDescriptors(root *hdkeychain.ExtendedKey, network string) (
+	[]string, string, error) {
+
+	chainParams, err := networkToChainParams(network)
+	if err != nil {
+		return nil, "", err
+	}
+
+	public, err := walletdesc.CanonicalPublic(root, chainParams)
+	if err != nil {
+		return nil, "", err
+	}
+
+	texts := make([]string, 0, len(public))
+	for i := range public {
+		text, err := public[i].Render(false)
+		if err != nil {
+			return nil, "", err
+		}
+		texts = append(texts, text)
+	}
+
+	fp, err := walletdesc.Fingerprint(root)
+	if err != nil {
+		return nil, "", err
+	}
+
+	return texts, fmt.Sprintf("%08x", fp), nil
+}
+
+// BirthdayFromUnix converts a request's Unix-seconds birthday into the
+// wallet birthday. Zero means unknown, which btcwallet treats as "scan
+// from genesis"; a negative value is an error.
+func BirthdayFromUnix(birthdayUnix int64) (time.Time, error) {
+	switch {
+	case birthdayUnix < 0:
+		return time.Time{}, fmt.Errorf("birthday_unix must not be " +
+			"negative")
+
+	case birthdayUnix == 0:
+		return time.Time{}, nil
+
+	default:
+		return time.Unix(birthdayUnix, 0), nil
+	}
 }
 
 // WalletIdentityPubKeyFromSeed derives the self-managed wallet identity at
