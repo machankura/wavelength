@@ -174,11 +174,6 @@ func seedSignerOwnedVTXO(t *testing.T, fixture *directedSendFixture,
 	ctx, cancel := context.WithTimeout(t.Context(), time.Minute)
 	defer cancel()
 
-	// The fixture seeds a VTXO paying a random key. The watch-only node
-	// verifies every signature the remote signer returns, so a spend of
-	// that VTXO fails where a plain lnd would return an unusable
-	// signature. Retire it and seed one the wallet owns, at the locator
-	// the daemon will ask the signer for.
 	ownerKey, err := signer.Client.WalletKit.DeriveKey(
 		ctx, &keychain.KeyLocator{
 			Family: types.VTXOOwnerKeyFamily,
@@ -187,12 +182,26 @@ func seedSignerOwnedVTXO(t *testing.T, fixture *directedSendFixture,
 	)
 	require.NoError(t, err)
 
+	return seedOwnedVTXO(t, fixture, *ownerKey)
+}
+
+// seedOwnedVTXO replaces the fixture's seeded VTXO with one owned by
+// ownerKey and relaunches the daemon, returning its outpoint. The fixture
+// seeds a VTXO paying a random key, and a signer that checks its
+// signatures (an lnd watch-only node, or lnd's RPC key ring in front of an
+// account signer) refuses to spend it where a plain lnd would return an
+// unusable signature, so the tests spend one the wallet really owns.
+func seedOwnedVTXO(t *testing.T, fixture *directedSendFixture,
+	ownerKey keychain.KeyDescriptor) wire.OutPoint {
+
+	t.Helper()
+
 	fixture.shutdown()
 	setSeededVTXOStatus(
 		t, fixture.cfg, fixture.seededOutpoint, vtxo.VTXOStatusSpent,
 	)
 	ownedOutpoint := seedVTXOWithOwner(
-		t, fixture.cfg, fixture.operatorKey, *ownerKey,
+		t, fixture.cfg, fixture.operatorKey, ownerKey,
 		btcutil.Amount(testSeededAmountSat),
 		"remote-owned", vtxo.VTXOStatusLive,
 	)
@@ -211,12 +220,6 @@ func requireSignerIdentity(t *testing.T, client waverpc.DaemonServiceClient,
 	ctx, cancel := context.WithTimeout(t.Context(), time.Minute)
 	defer cancel()
 
-	// The daemon identity (family 6, index 0) is derived through the
-	// watch-only node, so it must equal the signer's key: the watch-only
-	// node holds only the imported account xpubs.
-	info, err := client.GetInfo(ctx, &waverpc.GetInfoRequest{})
-	require.NoError(t, err)
-
 	signerIdentity, err := signer.Client.WalletKit.DeriveKey(
 		ctx, &keychain.KeyLocator{
 			Family: keychain.KeyFamilyNodeKey,
@@ -224,10 +227,27 @@ func requireSignerIdentity(t *testing.T, client waverpc.DaemonServiceClient,
 		},
 	)
 	require.NoError(t, err)
+
+	requireIdentity(t, client, signerIdentity.PubKey)
+}
+
+// requireIdentity checks the daemon's identity key (family 6, index 0) is
+// want. The daemon derives it from imported account xpubs, so a match shows
+// the xpubs are the signer's.
+func requireIdentity(t *testing.T, client waverpc.DaemonServiceClient,
+	want *btcec.PublicKey) {
+
+	t.Helper()
+
+	ctx, cancel := context.WithTimeout(t.Context(), time.Minute)
+	defer cancel()
+
+	info, err := client.GetInfo(ctx, &waverpc.GetInfoRequest{})
+	require.NoError(t, err)
 	require.Equal(
 		t,
 		hex.EncodeToString(
-			signerIdentity.PubKey.SerializeCompressed(),
+			want.SerializeCompressed(),
 		),
 		info.GetIdentityPubkey(),
 	)
