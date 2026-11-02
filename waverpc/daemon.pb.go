@@ -1327,8 +1327,21 @@ type InitWalletRequest struct {
 	// recovery_window is the number of key indexes to scan per recovery key
 	// family. Zero uses the daemon wallet.recoverywindow config value.
 	RecoveryWindow uint32 `protobuf:"varint,5,opt,name=recovery_window,json=recoveryWindow,proto3" json:"recovery_window,omitempty"`
-	unknownFields  protoimpl.UnknownFields
-	sizeCache      protoimpl.SizeCache
+	// descriptors are private output descriptors that all share one BIP32
+	// master key, for example tr(xprv.../86h/0h/0h/<0;1>/*). The daemon
+	// builds the wallet from that master key instead of a mnemonic.
+	// Mutually exclusive with mnemonic and seed_passphrase. Only tr()
+	// under purpose 86 and wpkh() under purpose 84 are accepted, with coin
+	// type 0' on every network and account 0. Descriptors are as secret as
+	// a seed.
+	Descriptors []string `protobuf:"bytes,6,rep,name=descriptors,proto3" json:"descriptors,omitempty"`
+	// birthday_unix is the earliest time, in Unix seconds, at which the
+	// descriptor keys may have received funds. It bounds the first rescan.
+	// Zero scans from genesis, which is slow but never misses funds. Only
+	// used with descriptors: a mnemonic carries its own birthday.
+	BirthdayUnix  int64 `protobuf:"varint,7,opt,name=birthday_unix,json=birthdayUnix,proto3" json:"birthday_unix,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *InitWalletRequest) Reset() {
@@ -1396,6 +1409,20 @@ func (x *InitWalletRequest) GetRecoveryWindow() uint32 {
 	return 0
 }
 
+func (x *InitWalletRequest) GetDescriptors() []string {
+	if x != nil {
+		return x.Descriptors
+	}
+	return nil
+}
+
+func (x *InitWalletRequest) GetBirthdayUnix() int64 {
+	if x != nil {
+		return x.BirthdayUnix
+	}
+	return 0
+}
+
 type InitWalletResponse struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// identity_pubkey is the hex-encoded daemon wallet identity public key
@@ -1420,8 +1447,15 @@ type InitWalletResponse struct {
 	// recovered_oor_events is the number of OOR recipient events processed
 	// during recovery.
 	RecoveredOorEvents uint32 `protobuf:"varint,7,opt,name=recovered_oor_events,json=recoveredOorEvents,proto3" json:"recovered_oor_events,omitempty"`
-	unknownFields      protoimpl.UnknownFields
-	sizeCache          protoimpl.SizeCache
+	// descriptors are the public output descriptors the new wallet watches,
+	// one per script type, with key origin and checksum. They are safe to
+	// share with watch-only software. Set for every self-managed wallet.
+	Descriptors []string `protobuf:"bytes,8,rep,name=descriptors,proto3" json:"descriptors,omitempty"`
+	// root_fingerprint is the hex-encoded BIP32 fingerprint of the wallet's
+	// master key.
+	RootFingerprint string `protobuf:"bytes,9,opt,name=root_fingerprint,json=rootFingerprint,proto3" json:"root_fingerprint,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
 }
 
 func (x *InitWalletResponse) Reset() {
@@ -1501,6 +1535,20 @@ func (x *InitWalletResponse) GetRecoveredOorEvents() uint32 {
 		return x.RecoveredOorEvents
 	}
 	return 0
+}
+
+func (x *InitWalletResponse) GetDescriptors() []string {
+	if x != nil {
+		return x.Descriptors
+	}
+	return nil
+}
+
+func (x *InitWalletResponse) GetRootFingerprint() string {
+	if x != nil {
+		return x.RootFingerprint
+	}
+	return ""
 }
 
 type UnlockWalletRequest struct {
@@ -11180,13 +11228,15 @@ const file_daemon_proto_rawDesc = "" +
 	"\x0fseed_passphrase\x18\x01 \x01(\fR\x0eseedPassphrase\"V\n" +
 	"\x0fGenSeedResponse\x12\x1a\n" +
 	"\bmnemonic\x18\x01 \x03(\tR\bmnemonic\x12'\n" +
-	"\x0fenciphered_seed\x18\x02 \x01(\fR\x0eencipheredSeed\"\xcf\x01\n" +
+	"\x0fenciphered_seed\x18\x02 \x01(\fR\x0eencipheredSeed\"\x96\x02\n" +
 	"\x11InitWalletRequest\x12\x1a\n" +
 	"\bmnemonic\x18\x01 \x03(\tR\bmnemonic\x12'\n" +
 	"\x0fwallet_password\x18\x02 \x01(\fR\x0ewalletPassword\x12'\n" +
 	"\x0fseed_passphrase\x18\x03 \x01(\fR\x0eseedPassphrase\x12#\n" +
 	"\rrecover_state\x18\x04 \x01(\bR\frecoverState\x12'\n" +
-	"\x0frecovery_window\x18\x05 \x01(\rR\x0erecoveryWindow\"\xfa\x02\n" +
+	"\x0frecovery_window\x18\x05 \x01(\rR\x0erecoveryWindow\x12 \n" +
+	"\vdescriptors\x18\x06 \x03(\tR\vdescriptors\x12#\n" +
+	"\rbirthday_unix\x18\a \x01(\x03R\fbirthdayUnix\"\xc7\x03\n" +
 	"\x12InitWalletResponse\x12'\n" +
 	"\x0fidentity_pubkey\x18\x01 \x01(\tR\x0eidentityPubkey\x12!\n" +
 	"\frecovery_ran\x18\x02 \x01(\bR\vrecoveryRan\x12@\n" +
@@ -11194,7 +11244,9 @@ const file_daemon_proto_rawDesc = "" +
 	"\x18recovered_boarding_utxos\x18\x04 \x01(\rR\x16recoveredBoardingUtxos\x12'\n" +
 	"\x0frecovered_vtxos\x18\x05 \x01(\rR\x0erecoveredVtxos\x12A\n" +
 	"\x1drecovered_oor_receive_scripts\x18\x06 \x01(\rR\x1arecoveredOorReceiveScripts\x120\n" +
-	"\x14recovered_oor_events\x18\a \x01(\rR\x12recoveredOorEvents\">\n" +
+	"\x14recovered_oor_events\x18\a \x01(\rR\x12recoveredOorEvents\x12 \n" +
+	"\vdescriptors\x18\b \x03(\tR\vdescriptors\x12)\n" +
+	"\x10root_fingerprint\x18\t \x01(\tR\x0frootFingerprint\">\n" +
 	"\x13UnlockWalletRequest\x12'\n" +
 	"\x0fwallet_password\x18\x01 \x01(\fR\x0ewalletPassword\"?\n" +
 	"\x14UnlockWalletResponse\x12'\n" +

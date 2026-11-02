@@ -50,12 +50,13 @@ const (
 // registered only when the daemon is built with the wavewalletrpc build tag
 // (which also requires swapruntime).
 type WalletServiceClient interface {
-	// Create initializes a new wallet from a freshly generated aezeed
-	// mnemonic. The daemon generates the seed, encrypts it with the
-	// supplied password, and returns the mnemonic so the caller can record
-	// it. For recovery flows the caller MAY supply an existing mnemonic in
-	// the request; in that case the same mnemonic is echoed back. Proxies
-	// waverpc.GenSeed + waverpc.InitWallet server-side.
+	// Create initializes a new wallet. With no seed material the daemon
+	// generates an aezeed mnemonic, encrypts the wallet with the supplied
+	// password, and returns the mnemonic so the caller can record it. For
+	// recovery flows the caller MAY supply an existing mnemonic, which is
+	// echoed back, or private output descriptors, in which case no
+	// mnemonic is returned. Proxies waverpc.GenSeed + waverpc.InitWallet
+	// server-side.
 	Create(ctx context.Context, in *CreateRequest, opts ...grpc.CallOption) (*CreateResponse, error)
 	// Unlock decrypts the on-disk wallet seed using the supplied password
 	// and starts the wallet subsystem. Proxies waverpc.UnlockWallet.
@@ -301,12 +302,13 @@ type WalletService_SubscribeWalletClient = grpc.ServerStreamingClient[SubscribeW
 // registered only when the daemon is built with the wavewalletrpc build tag
 // (which also requires swapruntime).
 type WalletServiceServer interface {
-	// Create initializes a new wallet from a freshly generated aezeed
-	// mnemonic. The daemon generates the seed, encrypts it with the
-	// supplied password, and returns the mnemonic so the caller can record
-	// it. For recovery flows the caller MAY supply an existing mnemonic in
-	// the request; in that case the same mnemonic is echoed back. Proxies
-	// waverpc.GenSeed + waverpc.InitWallet server-side.
+	// Create initializes a new wallet. With no seed material the daemon
+	// generates an aezeed mnemonic, encrypts the wallet with the supplied
+	// password, and returns the mnemonic so the caller can record it. For
+	// recovery flows the caller MAY supply an existing mnemonic, which is
+	// echoed back, or private output descriptors, in which case no
+	// mnemonic is returned. Proxies waverpc.GenSeed + waverpc.InitWallet
+	// server-side.
 	Create(context.Context, *CreateRequest) (*CreateResponse, error)
 	// Unlock decrypts the on-disk wallet seed using the supplied password
 	// and starts the wallet subsystem. Proxies waverpc.UnlockWallet.
