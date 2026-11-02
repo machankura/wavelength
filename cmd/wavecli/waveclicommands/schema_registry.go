@@ -202,6 +202,22 @@ func walletAdminMethodRegistry() []schemaMethod {
 						"per " +
 						"recovery family",
 				},
+				{
+					Name: "descriptor-file",
+					Type: "string",
+					Description: "path to private " +
+						"output descriptors to " +
+						"build the wallet from " +
+						"instead of a mnemonic",
+				},
+				{
+					Name: "birthday",
+					Type: "string",
+					Description: "earliest date the " +
+						"descriptor keys may have " +
+						"received funds (RFC3339 " +
+						"or YYYY-MM-DD)",
+				},
 			},
 			RequestType:  "CreateRequest",
 			ResponseType: "CreateResponse",
