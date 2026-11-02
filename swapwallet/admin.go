@@ -23,10 +23,11 @@ const forceUnrollAck = "I_KNOW_WHAT_I_AM_DOING"
 const walletUnspentMaxConfs int32 = 9999999
 
 // create is the implementation of WalletService.Create. It proxies the
-// waverpc admin surface: if the caller supplied a mnemonic, we treat the
-// call as a recovery flow and only call InitWallet; otherwise we run the
-// GenSeed → InitWallet sequence and return the freshly generated mnemonic
-// so the caller can persist it offline.
+// waverpc admin surface: if the caller supplied a mnemonic or descriptors,
+// we treat the call as a recovery flow and only call InitWallet; otherwise
+// we run the GenSeed → InitWallet sequence and return the freshly generated
+// mnemonic so the caller can persist it offline. A descriptor import
+// returns no mnemonic.
 //
 // The handler is admin-shape: it runs BEFORE the swap subsystem is live
 // and MUST NOT depend on Runtime, router, recv, or history. The only
@@ -46,7 +47,8 @@ func (s *Service) create(ctx context.Context,
 	}
 
 	mnemonic := req.GetMnemonic()
-	if len(mnemonic) == 0 {
+	descriptors := req.GetDescriptors()
+	if len(mnemonic) == 0 && len(descriptors) == 0 {
 		// Fresh wallet: generate a seed and echo the mnemonic back so
 		// the caller can record it. Recording the mnemonic is the
 		// caller's responsibility; once Create returns, the wallet is
@@ -70,6 +72,8 @@ func (s *Service) create(ctx context.Context,
 			SeedPassphrase: req.GetSeedPassphrase(),
 			RecoverState:   req.GetRecoverState(),
 			RecoveryWindow: req.GetRecoveryWindow(),
+			Descriptors:    descriptors,
+			BirthdayUnix:   req.GetBirthdayUnix(),
 		},
 	)
 	if err != nil {
@@ -86,6 +90,8 @@ func (s *Service) create(ctx context.Context,
 		RecoveredVtxos:             initResp.GetRecoveredVtxos(),
 		RecoveredOorReceiveScripts: initResp.GetRecoveredOorReceiveScripts(),
 		RecoveredOorEvents:         initResp.GetRecoveredOorEvents(),
+		Descriptors:                initResp.GetDescriptors(),
+		RootFingerprint:            initResp.GetRootFingerprint(),
 	}, nil
 }
 

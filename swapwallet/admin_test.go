@@ -90,6 +90,45 @@ func TestCreateRecoveryEchoesProvidedMnemonic(t *testing.T) {
 	require.Equal(t, recovery, rpc.initWalletLast.GetMnemonic())
 }
 
+// TestCreateFromDescriptorsSkipsGenSeed confirms a descriptor import is a
+// recovery flow: GenSeed is skipped, the descriptors and birthday reach
+// InitWallet, no mnemonic is returned, and the public descriptors and
+// fingerprint are echoed back.
+func TestCreateFromDescriptorsSkipsGenSeed(t *testing.T) {
+	t.Parallel()
+
+	svc, rpc := newAdminFixture(t)
+	rpc.initWalletResp = &waverpc.InitWalletResponse{
+		IdentityPubkey: "beef",
+		Descriptors: []string{
+			"tr([d34db33f/86h/0h/0h]tpub...)",
+		},
+		RootFingerprint: "d34db33f",
+	}
+
+	descriptors := []string{"tr(tprv.../86h/0h/0h/<0;1>/*)"}
+	resp, err := svc.Create(t.Context(), &wavewalletrpc.CreateRequest{
+		WalletPassword: []byte("hunter2hunter2"),
+		Descriptors:    descriptors,
+		BirthdayUnix:   1_700_000_000,
+	})
+	require.NoError(t, err)
+	require.Equal(
+		t, 0, rpc.genSeedCalls, "descriptor import must skip GenSeed",
+	)
+	require.Empty(t, resp.GetMnemonic())
+	require.Equal(t, "beef", resp.GetIdentityPubkey())
+	require.Equal(t, "d34db33f", resp.GetRootFingerprint())
+	require.Equal(
+		t, rpc.initWalletResp.GetDescriptors(), resp.GetDescriptors(),
+	)
+	require.Equal(t, descriptors, rpc.initWalletLast.GetDescriptors())
+	require.Equal(
+		t, int64(1_700_000_000), rpc.initWalletLast.GetBirthdayUnix(),
+	)
+	require.Empty(t, rpc.initWalletLast.GetMnemonic())
+}
+
 // TestCreateRejectsEmptyPassword confirms the handler rejects missing
 // passwords with InvalidArgument before touching the daemon.
 func TestCreateRejectsEmptyPassword(t *testing.T) {
