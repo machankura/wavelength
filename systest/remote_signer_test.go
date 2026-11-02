@@ -6,13 +6,17 @@ import (
 	"context"
 	"encoding/hex"
 	"net"
+	"os"
+	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr/musig2"
 	"github.com/btcsuite/btcd/btcutil/v2"
+	"github.com/btcsuite/btcd/chaincfg/v2"
 	"github.com/btcsuite/btcd/chainhash/v2"
 	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/btcsuite/btclog/v2"
@@ -20,13 +24,18 @@ import (
 	"github.com/lightninglabs/wavelength/db"
 	"github.com/lightninglabs/wavelength/harness"
 	"github.com/lightninglabs/wavelength/lib/types"
+	"github.com/lightninglabs/wavelength/lwwallet"
 	"github.com/lightninglabs/wavelength/vtxo"
+	"github.com/lightninglabs/wavelength/walletcore"
+	"github.com/lightninglabs/wavelength/walletdesc"
 	"github.com/lightninglabs/wavelength/waved"
 	"github.com/lightninglabs/wavelength/waverpc"
 	"github.com/lightningnetwork/lnd/clock"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
+	"github.com/lightningnetwork/lnd/lnrpc/walletrpc"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/protobuf/encoding/protojson"
 )
 
 const (
@@ -106,9 +115,63 @@ func TestRemoteSignerDaemon(t *testing.T) {
 	ParallelN(t)
 
 	fixture, nodes := newRemoteSignerFixture(t)
-	h := fixture.harness.Harness
 
 	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Minute)
+	defer cancel()
+
+	ownedOutpoint := seedSignerOwnedVTXO(t, fixture, nodes.signer)
+	requireSignerIdentity(t, fixture.client, nodes.signer)
+	runRemoteSignerFlows(t, fixture, ownedOutpoint)
+
+	// Signing latency: time the operations a round runs per signature,
+	// through the watch-only node (remote) and on the signer node itself
+	// (local), so the difference is the remote signer hop.
+	remote := measureRoundSigning(ctx, t, nodes.watchOnly, nodes.signer)
+	local := measureRoundSigning(ctx, t, nodes.signer, nodes.signer)
+
+	for _, op := range []string{opJoinAuth, opMuSig2} {
+		t.Logf(
+			"%s: remote p50=%v p95=%v max=%v, local p50=%v p95=%v",
+			op, percentile(remote[op], 50),
+			percentile(remote[op], 95), slices.Max(remote[op]),
+			percentile(local[op], 50), percentile(local[op], 95),
+		)
+
+		require.Less(
+			t, percentile(remote[op], 95),
+			remoteSignerRequestTimeout, "%s p95 exceeds lnd's "+
+				"remote signer timeout", op,
+		)
+	}
+
+	// A wallet signs one join authorization per round and one MuSig2
+	// partial signature per tree node on each of its leaves' paths. A
+	// wallet with 32 leaves in a 4096-leaf tree signs at most 32*12 nodes;
+	// forfeits are SignOutputRaw calls of the same cost class as the
+	// MuSig2 step, so count one per leaf.
+	const (
+		leaves    = 32
+		treeDepth = 12
+	)
+	perRound := percentile(remote[opJoinAuth], 95) +
+		time.Duration(leaves*treeDepth+leaves)*
+			percentile(remote[opMuSig2], 95)
+	t.Logf(
+		"projected remote signing per round (%d leaves, depth %d, "+
+			"p95): %v of a %v budget", leaves, treeDepth, perRound,
+		roundAdmissionBudget,
+	)
+	require.Less(t, perRound, roundAdmissionBudget/10)
+}
+
+// seedSignerOwnedVTXO replaces the fixture's seeded VTXO with one owned by
+// the signer's key and relaunches the daemon, returning its outpoint.
+func seedSignerOwnedVTXO(t *testing.T, fixture *directedSendFixture,
+	signer *harness.LndInstance) wire.OutPoint {
+
+	t.Helper()
+
+	ctx, cancel := context.WithTimeout(t.Context(), time.Minute)
 	defer cancel()
 
 	// The fixture seeds a VTXO paying a random key. The watch-only node
@@ -116,7 +179,7 @@ func TestRemoteSignerDaemon(t *testing.T) {
 	// that VTXO fails where a plain lnd would return an unusable
 	// signature. Retire it and seed one the wallet owns, at the locator
 	// the daemon will ask the signer for.
-	ownerKey, err := nodes.signer.Client.WalletKit.DeriveKey(
+	ownerKey, err := signer.Client.WalletKit.DeriveKey(
 		ctx, &keychain.KeyLocator{
 			Family: types.VTXOOwnerKeyFamily,
 			Index:  7,
@@ -134,7 +197,19 @@ func TestRemoteSignerDaemon(t *testing.T) {
 		"remote-owned", vtxo.VTXOStatusLive,
 	)
 	fixture.launch()
-	client := fixture.client
+
+	return ownedOutpoint
+}
+
+// requireSignerIdentity checks the daemon's identity key is the signer's
+// family 6 index 0 key.
+func requireSignerIdentity(t *testing.T, client waverpc.DaemonServiceClient,
+	signer *harness.LndInstance) {
+
+	t.Helper()
+
+	ctx, cancel := context.WithTimeout(t.Context(), time.Minute)
+	defer cancel()
 
 	// The daemon identity (family 6, index 0) is derived through the
 	// watch-only node, so it must equal the signer's key: the watch-only
@@ -142,7 +217,7 @@ func TestRemoteSignerDaemon(t *testing.T) {
 	info, err := client.GetInfo(ctx, &waverpc.GetInfoRequest{})
 	require.NoError(t, err)
 
-	signerIdentity, err := nodes.signer.Client.WalletKit.DeriveKey(
+	signerIdentity, err := signer.Client.WalletKit.DeriveKey(
 		ctx, &keychain.KeyLocator{
 			Family: keychain.KeyFamilyNodeKey,
 			Index:  0,
@@ -156,6 +231,22 @@ func TestRemoteSignerDaemon(t *testing.T) {
 		),
 		info.GetIdentityPubkey(),
 	)
+}
+
+// runRemoteSignerFlows drives every fund-moving flow the fake operator can
+// carry, each signed through the remote signer: a board up to the JoinRound
+// request, an out-of-round send of ownedOutpoint up to SubmitPackage, and a
+// matured boarding output swept on chain through its exit leaf.
+func runRemoteSignerFlows(t *testing.T, fixture *directedSendFixture,
+	ownedOutpoint wire.OutPoint) {
+
+	t.Helper()
+
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Minute)
+	defer cancel()
+
+	h := fixture.harness.Harness
+	client := fixture.client
 
 	// Board: fund a boarding address (family 42), wait for the daemon to
 	// see it confirmed, and join a round. The JoinRound request carries
@@ -264,46 +355,6 @@ func TestRemoteSignerDaemon(t *testing.T) {
 		return sweepStatus == "confirmed"
 	}, 30*time.Second, 200*time.Millisecond,
 		"boarding sweep status %q, want confirmed", sweepStatus)
-
-	// Signing latency: time the operations a round runs per signature,
-	// through the watch-only node (remote) and on the signer node itself
-	// (local), so the difference is the remote signer hop.
-	remote := measureRoundSigning(ctx, t, nodes.watchOnly, nodes.signer)
-	local := measureRoundSigning(ctx, t, nodes.signer, nodes.signer)
-
-	for _, op := range []string{opJoinAuth, opMuSig2} {
-		t.Logf(
-			"%s: remote p50=%v p95=%v max=%v, local p50=%v p95=%v",
-			op, percentile(remote[op], 50),
-			percentile(remote[op], 95), slices.Max(remote[op]),
-			percentile(local[op], 50), percentile(local[op], 95),
-		)
-
-		require.Less(
-			t, percentile(remote[op], 95),
-			remoteSignerRequestTimeout, "%s p95 exceeds lnd's "+
-				"remote signer timeout", op,
-		)
-	}
-
-	// A wallet signs one join authorization per round and one MuSig2
-	// partial signature per tree node on each of its leaves' paths. A
-	// wallet with 32 leaves in a 4096-leaf tree signs at most 32*12 nodes;
-	// forfeits are SignOutputRaw calls of the same cost class as the
-	// MuSig2 step, so count one per leaf.
-	const (
-		leaves    = 32
-		treeDepth = 12
-	)
-	perRound := percentile(remote[opJoinAuth], 95) +
-		time.Duration(leaves*treeDepth+leaves)*
-			percentile(remote[opMuSig2], 95)
-	t.Logf(
-		"projected remote signing per round (%d leaves, depth %d, "+
-			"p95): %v of a %v budget", leaves, treeDepth, perRound,
-		roundAdmissionBudget,
-	)
-	require.Less(t, perRound, roundAdmissionBudget/10)
 }
 
 // Signing operations measured by measureRoundSigning.
@@ -474,4 +525,145 @@ func setSeededVTXOStatus(t *testing.T, cfg *waved.Config,
 		t.Context(), outpoint, status,
 	)
 	require.NoError(t, err)
+}
+
+// nativeRemoteSignerPassword is the wallet password of the watch-only
+// wallet in TestNativeRemoteSignerDaemon.
+const nativeRemoteSignerPassword = "native-remote-signer-pw"
+
+// signerBundle exports signer's accounts as the JSON `lncli wallet accounts
+// list` prints, the form a user hands the daemon.
+func signerBundle(ctx context.Context, t *testing.T,
+	signer *harness.LndInstance) []byte {
+
+	t.Helper()
+
+	accounts, err := signer.Client.WalletKit.ListAccounts(
+		ctx, "", walletrpc.AddressType_UNKNOWN,
+	)
+	require.NoError(t, err)
+
+	data, err := protojson.MarshalOptions{UseProtoNames: true}.Marshal(
+		&walletrpc.ListAccountsResponse{
+			Accounts: accounts,
+		},
+	)
+	require.NoError(t, err)
+
+	return data
+}
+
+// newNativeRemoteSignerFixture starts a full waved instance with
+// wallet.type=lwwallet and wallet.remotesigner pointing at a plain lnd used
+// only as a signer: no lnd sits behind the daemon. The watch-only wallet is
+// created from the signer's exported accounts before the daemon starts, and
+// the daemon opens it with its password file.
+func newNativeRemoteSignerFixture(t *testing.T) (*directedSendFixture,
+	*harness.LndInstance) {
+
+	t.Helper()
+
+	var signer *harness.LndInstance
+	fixture := newDirectedSendFixtureWithSetup(
+		t, func(h *SysTestHarness, cfg *waved.Config) {
+			ctx := h.Context()
+			signer = h.Harness.StartAdditionalLND("signer")
+
+			remote := &walletcore.RemoteSignerConfig{
+				RPCHost: net.JoinHostPort(
+					"localhost", signer.GRPCPort,
+				),
+				MacaroonPath: signer.Macaroon,
+				TLSCertPath:  signer.TLSCert,
+			}
+
+			bundle, err := walletdesc.ParseWatchOnlyBundle(
+				signerBundle(ctx, t, signer),
+				&chaincfg.RegressionNetParams,
+			)
+			require.NoError(t, err)
+
+			// Create the watch-only database the way the
+			// daemon's InitWallet does, and start it once so the
+			// signer check runs before the daemon ever does.
+			require.NoError(t, os.MkdirAll(cfg.NetworkDir(), 0o700))
+			w, err := lwwallet.New(lwwallet.Config{
+				WatchOnly:    bundle,
+				RemoteSigner: remote,
+				WalletPassword: []byte(
+					nativeRemoteSignerPassword,
+				),
+				EsploraURL:   h.Harness.EsploraURL,
+				ChainParams:  &chaincfg.RegressionNetParams,
+				PollInterval: time.Second,
+				DBDir:        cfg.NetworkDir(),
+			})
+			require.NoError(t, err)
+			require.NoError(t, w.Start())
+			w.Stop()
+
+			passwordFile := filepath.Join(t.TempDir(), "password")
+			require.NoError(
+				t,
+				os.WriteFile(
+					passwordFile,
+					[]byte(nativeRemoteSignerPassword),
+					0o600,
+				),
+			)
+
+			cfg.Wallet.Type = waved.WalletTypeLwwallet
+			cfg.Wallet.EsploraURL = h.Harness.EsploraURL
+			cfg.Wallet.PollInterval = time.Second
+			cfg.Wallet.PasswordFile = passwordFile
+			cfg.Wallet.RemoteSigner = waved.RemoteSignerConfig{
+				Enable:       true,
+				RPCHost:      remote.RPCHost,
+				MacaroonPath: remote.MacaroonPath,
+				TLSCertPath:  remote.TLSCertPath,
+			}
+		},
+	)
+
+	return fixture, signer
+}
+
+// TestNativeRemoteSignerDaemon is the W0 scenario on the native watch-only
+// backend: waved runs wallet.type=lwwallet with every private key on a
+// remote signer and no lnd behind it. Identity derivation, boarding into a
+// round, an out-of-round send and a boarding exit sweep all sign through
+// the signer, and the daemon reports the signer's account descriptors.
+func TestNativeRemoteSignerDaemon(t *testing.T) {
+	ParallelN(t)
+
+	fixture, signer := newNativeRemoteSignerFixture(t)
+
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Minute)
+	defer cancel()
+
+	ownedOutpoint := seedSignerOwnedVTXO(t, fixture, signer)
+	requireSignerIdentity(t, fixture.client, signer)
+
+	// The public descriptors come from the imported xpubs, so the BIP86
+	// one must carry the signer's account key.
+	descs, err := fixture.client.ListWalletDescriptors(
+		ctx, &waverpc.ListWalletDescriptorsRequest{},
+	)
+	require.NoError(t, err)
+	accounts, err := signer.Client.WalletKit.ListAccounts(
+		ctx, "default", walletrpc.AddressType_TAPROOT_PUBKEY,
+	)
+	require.NoError(t, err)
+	require.Len(t, accounts, 1)
+	require.NotEmpty(t, descs.GetDescriptors())
+	require.Contains(
+		t,
+		strings.Join(
+			descs.GetDescriptors(),
+			"\n",
+		),
+		accounts[0].GetExtendedPublicKey(),
+	)
+
+	runRemoteSignerFlows(t, fixture, ownedOutpoint)
 }
