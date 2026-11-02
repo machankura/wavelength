@@ -137,7 +137,13 @@ For field-level detail, use `go doc github.com/lightninglabs/wavelength/db.<Symb
   still exist. A nil cursor starts at the newest session; direction zero and
   status `-1` disable their respective filters; a non-positive limit is an
   error.
-- `LatestMigrationVersion = 27` — current schema version.
+- `LatestMigrationVersion = 28` — current schema version.
+- `WalletKeyOriginStore` / `WalletKeyOrigin` — the single-row record of the
+  self-managed wallet's BIP32 master key fingerprint and how its keys were
+  supplied (`WalletKeySourceSeed` or `WalletKeySourceDescriptors`). btcwallet
+  does not store the fingerprint for its default accounts, and descriptor
+  export needs it for key origins. `Get` returns None for wallets created
+  before migration `000028`. Public data only.
 - `PendingIntentPersistenceStore` — implements `wallet.PendingIntentStore`,
   the persistence half of the generic restart-safe intent outbox (header
   `pending_intents` + per-kind detail tables + `pending_intent_anchors`).
@@ -492,6 +498,11 @@ when adding one.
 - `000027_activity_batch_wait` — mutable JSON display metadata for pending
   batch registration. An empty value clears the window; changes update the
   existing activity row and append one resumable event.
+
+- `000028_wallet_key_origin` — single-row `wallet_key_origin` (CHECK
+  `id = 1`) holding the master key fingerprint and key source. Written at
+  wallet creation; not backfilled, because the fingerprint cannot be
+  recovered from btcwallet without the seed.
 
 ## Deep Docs
 
