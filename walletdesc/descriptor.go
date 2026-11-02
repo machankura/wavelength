@@ -95,7 +95,8 @@ func NewAccountDescriptor(scriptType ScriptType,
 			accountKey.Depth())
 	}
 
-	pub, err := accountKey.Neuter()
+	// Keep an independent copy so the caller may wipe accountKey.
+	pub, err := independentPublic(accountKey)
 	if err != nil {
 		return nil, err
 	}

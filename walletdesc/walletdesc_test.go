@@ -626,3 +626,62 @@ func FuzzParse(f *testing.F) {
 		}
 	})
 }
+
+// TestPublicKeyIndependent pins the public rendering to an independent
+// derivation: the rendered account xpub's first receive key must equal the
+// key derived from the master key along the full path, and must survive the
+// caller wiping the key it was built from. hdkeychain's Neuter shares byte
+// slices with the private key, which once made the rendered xpub carry a
+// zeroed chain code.
+func TestPublicKeyIndependent(t *testing.T) {
+	t.Parallel()
+
+	params := &chaincfg.RegressionNetParams
+	root := testRoot(t, compatibleSeed(t, params), params)
+
+	wd, err := Parse([]string{
+		"tr(" + root.String() + "/86h/0h/0h/<0;1>/*)",
+	}, params)
+	require.NoError(t, err)
+
+	public, err := wd.Descriptors[0].Render(false)
+	require.NoError(t, err)
+
+	start := strings.Index(public, "]") + 1
+	end := strings.Index(public[start:], "/") + start
+	acctPub, err := hdkeychain.NewKeyFromString(public[start:end])
+	require.NoError(t, err)
+	require.Equal(t, uint8(3), acctPub.Depth())
+	require.NotEqual(t, make([]byte, 32), acctPub.ChainCode())
+
+	receive, err := acctPub.Derive(0)
+	require.NoError(t, err)
+	first, err := receive.Derive(0)
+	require.NoError(t, err)
+	gotPub, err := first.ECPubKey()
+	require.NoError(t, err)
+
+	// Derive the same key straight from the master key, with no wiping
+	// anywhere along the way.
+	key := root
+	for _, index := range append(accountPath(86, 0, 0), 0, 0) {
+		key, err = key.DeriveNonStandard(index)
+		require.NoError(t, err)
+	}
+	wantPub, err := key.ECPubKey()
+	require.NoError(t, err)
+	require.True(t, wantPub.IsEqual(gotPub))
+
+	// A descriptor built from a caller's account key keeps working after
+	// the caller wipes that key.
+	acctPriv := accountKey(t, root, accountPath(86, 0, 0)...)
+	fp, err := Fingerprint(root)
+	require.NoError(t, err)
+	fromAcct, err := NewAccountDescriptor(ScriptTaproot, acctPriv, fp, true)
+	require.NoError(t, err)
+	acctPriv.Zero()
+
+	again, err := fromAcct.Render(false)
+	require.NoError(t, err)
+	require.Equal(t, public, again)
+}

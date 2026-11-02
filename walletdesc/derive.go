@@ -66,7 +66,22 @@ func accountPublicKey(root *hdkeychain.ExtendedKey, purpose, coin,
 	}
 	defer acct.Zero()
 
-	return acct.Neuter()
+	return independentPublic(acct)
+}
+
+// independentPublic returns the neutered form of key as a fully separate
+// value. hdkeychain's Neuter shares the chain code and public key slices
+// with the private key, so wiping the private key afterwards would also
+// wipe the public one. Re-parsing the serialization breaks that aliasing.
+func independentPublic(key *hdkeychain.ExtendedKey) (*hdkeychain.ExtendedKey,
+	error) {
+
+	pub, err := key.Neuter()
+	if err != nil {
+		return nil, err
+	}
+
+	return hdkeychain.NewKeyFromString(pub.String())
 }
 
 // legacyCompatible reports whether a hardened path derives the same key
