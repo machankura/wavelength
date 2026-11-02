@@ -808,3 +808,23 @@ func TestStandardAccountPublicKey(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, want, got)
 }
+
+// TestRawTaprootDescriptor checks the rawtr() export against a known output
+// key and refuses non-taproot scripts.
+func TestRawTaprootDescriptor(t *testing.T) {
+	t.Parallel()
+
+	key := strings.Repeat("ab", 32)
+	script, err := hex.DecodeString("5120" + key)
+	require.NoError(t, err)
+
+	got, err := RawTaprootDescriptor(script)
+	require.NoError(t, err)
+
+	want, err := AddChecksum("rawtr(" + key + ")")
+	require.NoError(t, err)
+	require.Equal(t, want, got)
+
+	_, err = RawTaprootDescriptor([]byte{0x00, 0x14, 0x01})
+	require.ErrorIs(t, err, ErrUnsupportedDescriptor)
+}
