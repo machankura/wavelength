@@ -114,6 +114,56 @@ waved \
   --rpc.listenaddr=localhost:10029
 ```
 
+#### lnd with a remote signer
+
+lnd mode also works when the lnd node is watch-only and its private keys
+live in a separate lnd remote signer. Nothing changes on the waved side:
+point `--lnd.*` at the watch-only node. Every key waved derives and every
+signature it requests (identity, boarding, VTXO owner, VTXO tree MuSig2,
+join authorization, out-of-round receive) goes through that node, which
+forwards it to the signer.
+
+Set the pair up the way lnd documents it:
+
+1. Start the signer lnd normally, with its own seed, and let it sync.
+2. Export its accounts with `lncli wallet accounts list` (or
+   `WalletKit.ListAccounts`). The export includes the `m/1017'` key-family
+   accounts waved needs, not just the on-chain BIP84/BIP86 ones.
+3. Start the watch-only lnd with
+   `--remotesigner.enable`, `--remotesigner.rpchost=<signer>:10009`,
+   `--remotesigner.tlscertpath` and `--remotesigner.macaroonpath` pointing
+   at the signer's TLS certificate and a macaroon that can sign, then
+   create its wallet with `lncli createwatchonly` (or
+   `WalletUnlocker.InitWallet` with `watch_only.accounts`) from that
+   export.
+4. Start waved against the watch-only node exactly as above.
+
+`--lnd.account` accepts a watch-only account on such a node, because its
+`default` taproot account is itself watch-only; see the flag reference.
+
+Timeouts: lnd bounds each remote signer request with
+`--remotesigner.timeout` (5 s by default) on the watch-only node, and waved
+bounds each lnd RPC with `--lnd.rpctimeout` (30 s). The remote hop is cheap
+in practice. The `TestRemoteSignerDaemon` system test measured a Schnorr
+signature at about 2 ms (95th percentile) through the remote signer, against
+0.6 ms on the signer directly, and a MuSig2 session plus partial signature at
+about 4 ms against 3 ms. At those rates, a wallet with 32 leaves in a
+4096-leaf round spends under 2 s signing, far inside the 30-minute round
+participation budget (`docs/round_admission_deadlines.md`). Those figures
+are for a signer on the same host; add your network round trip per
+signature for a remote one.
+
+The watch-only node checks every signature the signer returns against the
+key it expected. A signature request for an output that does not pay a key
+the signer derives fails with `remote signer returned invalid taproot
+script spend signature` instead of returning an unusable signature.
+
+The system test covers startup, boarding into a round up to the join
+request, an out-of-round send up to the operator's submit, and a unilateral
+boarding exit swept on chain. It runs against a fake operator, so the
+round's tree and forfeit signing is measured separately rather than inside a
+completed round.
+
 ### Daemon Flags Reference
 
 | Flag | Default | Description |

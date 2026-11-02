@@ -127,8 +127,20 @@ VTXOs.
   proposed ast-grep rule (ast-grep is not installed on the build host, so a
   rule could not be verified) and a release-notes entry (the repository has
   no release-notes file; `docs/release.md` describes the process).
-- [ ] Extension W0: system test and docs for the existing watch-only lnd plus
-  remote signer path.
+- [x] (2026-11-02) Extension W0: `systest/remote_signer_test.go`
+  (`TestRemoteSignerDaemon`) runs `waved` with `wallet.type=lnd` against the
+  harness watch-only lnd and its lnd remote signer. It checks the identity key
+  matches the signer, boards up to the JoinRound request (join authorization
+  signed remotely), sends out of round up to the operator's SubmitPackage
+  (Ark input signed remotely), and sweeps a matured boarding output on chain
+  through its CSV exit leaf. It then times signer operations through the
+  watch-only node and on the signer directly: Schnorr p95 about 1.9 ms remote
+  against 0.6 ms local, MuSig2 session plus sign about 4.0 ms against 2.8 ms,
+  so a 32-leaf wallet in a depth-12 tree projects to about 1.6 s of the
+  30-minute admission budget. Setup and figures are in
+  `docs/daemon_cli_guide.md` ("lnd with a remote signer"). Gap: the systest
+  operator is a fake mailbox, so no round completes; tree and forfeit
+  signing cost is measured with direct signer calls, not inside a round.
 - [x] (2026-11-02) Extension W1: remove the raw private key and
   concrete-btcwallet signing assumptions. PSBT funding and signing go
   through the new `walletcore.Wallet.Controller`. Indexer proof signing
@@ -150,11 +162,11 @@ VTXOs.
   generated `Descriptor()` method; there is no cursor, so the list is bounded
   by wallet size; VTXO entries report exit delay 0 (unknown) because the
   delay sits in the policy template, which is not decoded here.
-- [ ] Not started: W0 (remote-signer system test), W2 (native watch-only
-  backend), W3 (account-level keys), W4 (Wavelength signer mode), W5
-  (per-family overrides). Each is a multi-day project needing new
-  infrastructure (a remote-signer harness topology, a new signer process,
-  encrypted key storage); they are next in that order.
+- [ ] Not started: W2 (native watch-only backend), W3 (account-level keys),
+  W4 (Wavelength signer mode), W5 (per-family overrides). Each is a
+  multi-day project needing new infrastructure (a new signer process,
+  encrypted key storage); they are next in that order. W0's remote-signer
+  harness topology and test are the acceptance base for W2 and W5.
 
 
 ## Surprises & Discoveries
@@ -357,6 +369,23 @@ VTXOs.
   Wavelength ever uses must stay below 256, and W0 should reuse the
   `a33908a9` harness constructor rather than build a new one.
 
+- Observation: a watch-only lnd verifies every signature its remote signer
+  returns, and a plain lnd does not. The first W0 run failed with "remote
+  signer returned invalid taproot script spend signature" because the systest
+  fixture seeds a VTXO paying a random key at locator (44, 7): a plain lnd
+  signs with its own (44, 7) key and returns a signature that does not verify,
+  which the fake operator never checks. The remote-signer test seeds a VTXO
+  owned by the signer's real key instead (`seedVTXOWithOwner`). Consequence
+  for W2 and W4: a native remote signer should verify returned signatures the
+  same way, since it turns a silent bad signature into an immediate error.
+  Evidence: `systest/remote_signer_test.go`, first-run log.
+
+- Observation: the remote signer hop adds about 1 to 1.5 ms per signature on
+  one host, far below lnd's 5 s `remotesigner.timeout`. W0 found no need to
+  raise any timeout; W2's own signer timeout can start from the same 5 s and
+  revisit for cross-network signers.
+  Evidence: `TestRemoteSignerDaemon` log, 20 samples per operation.
+
 
 ## Decision Log
 
@@ -535,6 +564,14 @@ VTXOs.
   authorization than the password, and the daemon verifies it against the
   open wallet's account keys and identity before rendering anything. The RPC
   sits under the same `info:write` macaroon permission as `InitWallet`.
+  Date/Author: 2026-11-02, implementer.
+
+- Decision: W0 runs against the systest fake operator and stops each flow at
+  the operator boundary, measuring round signing with direct signer calls.
+  Rationale: this repository has no real Ark operator to complete a round,
+  and the remote-signer risk is in the signing calls, which the test drives
+  through the same watch-only node waved uses. A completed round needs an
+  end-to-end environment with a real operator.
   Date/Author: 2026-11-02, implementer.
 
 - Decision: Protobuf changes add new fields rather than wrapping the existing
