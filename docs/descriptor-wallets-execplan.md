@@ -58,8 +58,11 @@ VTXOs.
   key equivalence with the seed path. `TestRootKeyWalletMatchesSeedWallet`
   in `walletcore/rootkey_prototype_test.go` passes on regtest and mainnet;
   the three open questions are answered in `Surprises & Discoveries`.
-- [ ] Milestone 1: `walletdesc` package that parses, checksums and validates
-  descriptors.
+- [x] (2026-11-02) Milestone 1: `walletdesc` package that parses, checksums
+  and validates descriptors. All unit tests pass and 60 seconds of fuzzing
+  (about 9 million executions) found nothing. `make ast-lint` could not run
+  locally because the `sg` binary on this host is the shadow-utils group
+  tool, not ast-grep; CI runs it.
 - [ ] Milestone 2: wallet backends accept a root extended key instead of a
   seed.
 - [ ] Milestone 3: daemon RPC, CLI and swap-wallet admin surface for
@@ -401,6 +404,24 @@ VTXOs.
   each one is read from the pkScript `arkscript` already produced.
   Date/Author: 2026-11-02, plan author, at the user's request.
 
+- Decision (Milestone 1): the text-rendering method is
+  `Descriptor.Render(includePrivate bool) (string, error)`, not
+  `String(includePrivate bool)`. `Descriptor` and `WalletDescriptors` instead
+  implement a redacted `String()` and `slog.LogValuer`. The package also
+  exports `Checksum`, `AddChecksum`, `Fingerprint`, `NewAccountDescriptor`,
+  `MaxDescriptors` and the extra sentinels `ErrMalformedDescriptor`,
+  `ErrBadChecksum`, `ErrUnsupportedDescriptor`, `ErrNoDescriptors`,
+  `ErrTooManyDescriptors` and `ErrDuplicateDescriptor`.
+  Rationale: a method named `String` with a parameter cannot satisfy
+  `fmt.Stringer`. If `fmt` printed a struct whose exported field holds an
+  `*hdkeychain.ExtendedKey`, it would call that key's `String` and print the
+  `xprv`, so the safe default for `%v` has to be a redacted `String()`.
+  `NewAccountDescriptor` is needed by Milestone 4 to render public
+  descriptors from btcwallet's account xpubs when no master key is
+  available. The extra sentinels let every `Parse` failure map to exactly
+  one error for RPC status codes.
+  Date/Author: 2026-11-02, implementer.
+
 - Decision: Protobuf changes add new fields rather than wrapping the existing
   `mnemonic` field in a `oneof`.
   Rationale: moving an existing field into a `oneof` is wire compatible but
@@ -624,9 +645,11 @@ The package exposes:
     // Zero wipes the private key material.
     func (w *WalletDescriptors) Zero()
 
-    // String renders a descriptor in canonical form with checksum; private
-    // keys are rendered only when includePrivate is true.
-    func (d Descriptor) String(includePrivate bool) string
+    // Render renders a descriptor in canonical form with checksum; private
+    // keys are rendered only when includePrivate is true. (Implemented as
+    // Render rather than String(bool) so that String can be a redacted
+    // fmt.Stringer; see the Decision Log.)
+    func (d *Descriptor) Render(includePrivate bool) (string, error)
 
     // CanonicalPublic returns the account-level public descriptors that a
     // wallet built from root watches: tr for purpose 86 and wpkh for 84.
