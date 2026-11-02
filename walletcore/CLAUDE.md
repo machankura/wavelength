@@ -27,6 +27,17 @@ btcwallet.BtcWallet regardless of the underlying chain source.
   `Loader.CreateNewWalletExtendedKey` and handing it over via
   `btcwallet.Config.Wallet`. A wallet built from a seed's master key is
   identical to one built from the seed (`rootkey_test.go`).
+- `NewWatchOnlyBtcWallet` — creates a watch-only btcwallet from a
+  `walletdesc.WatchOnlyBundle` (mirroring lnd's `importWatchOnlyAccounts`),
+  or opens an existing one with a nil bundle. The user's password is the
+  public passphrase, since a watch-only wallet has no private one.
+- `RemoteSignerConfig` / `DialRemoteSigner` / `NewRemoteKeyRing` /
+  `VerifyRemoteSigner` — connect to an lnd-compatible remote signer, put
+  lnd's `rpcwallet.RPCKeyRing` in front of the watch-only wallet (it is the
+  `Signer`, `KeyRing` and `Controller` at once), and check on start that the
+  signer holds the identity key the imported xpubs imply. Dialing is
+  compiled out of `js && wasm` builds, which cannot open the gRPC
+  connection.
 - `OutputLeaser` — Interface for UTXO reservation during coin selection:
   `LeaseOutput(ctx, id, outpoint, expiry)` and
   `ReleaseOutput(ctx, id, outpoint)`. Implemented by `lwwallet.BoardingBackendAdapter`
@@ -59,6 +70,12 @@ btcwallet.BtcWallet regardless of the underlying chain source.
   `addressForTaprootScript`, repopulating the filter without a second
   import attempt — covers the case where btcwallet already persisted the
   script but the in-memory filter started empty.
+- Opening a watch-only wallet first checks the database exists:
+  `btcwallet.New` would otherwise create a key-holding wallet from a random
+  seed. A database that holds private keys is refused in watch-only mode.
+- Imported accounts must get the number their key was derived at;
+  `NewWatchOnlyBtcWallet` checks each import's `AccountNumber`, since
+  btcwallet assigns one past the scope's last account.
 - The user-supplied `Config.WalletPassword` is btcwallet's `PrivatePass`; the
   static `PublicWalletPassphrase` constant covers only public (watch-only)
   data. With neither `Config.Seed` nor `Config.RootKey` set the backend opens
