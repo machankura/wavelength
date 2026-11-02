@@ -106,7 +106,7 @@ func TestOpenWalletFromDescriptorsImport(t *testing.T) {
 		t.Context(), DescriptorWalletRequest{
 			Descriptors: texts,
 			Birthday:    birthday,
-		}, root, identity,
+		}, deriveDescriptorDBPassword(root), identity,
 	)
 	require.NoError(t, err)
 	require.True(t, result.Imported)
@@ -146,7 +146,7 @@ func TestOpenWalletFromDescriptorsUnlock(t *testing.T) {
 		t.Context(), DescriptorWalletRequest{
 			Descriptors: texts,
 		},
-		root,
+		deriveDescriptorDBPassword(root),
 		identity,
 	)
 	require.NoError(t, err)
@@ -176,7 +176,7 @@ func TestOpenWalletFromDescriptorsRefuses(t *testing.T) {
 		t.Context(), DescriptorWalletRequest{
 			Descriptors: texts,
 		},
-		root,
+		deriveDescriptorDBPassword(root),
 		identity,
 	)
 	require.ErrorContains(t, err, "identity mismatch")
@@ -188,7 +188,7 @@ func TestOpenWalletFromDescriptorsRefuses(t *testing.T) {
 		t.Context(), DescriptorWalletRequest{
 			Descriptors: texts,
 		},
-		root,
+		deriveDescriptorDBPassword(root),
 		identity,
 	)
 	require.ErrorContains(t, err, "already unlocked")
@@ -276,3 +276,55 @@ func TestStartDescriptorWalletValidatesBeforeStartup(t *testing.T) {
 // the vector's published private key and chain code.
 const descriptorDBPasswordGolden = "5b10f401e149623dc7d35d80ebe783602cd8" +
 	"91fd1dcd6c8793b9290b1c735fe1"
+
+// TestDescriptorWalletAccountKeys checks a descriptor wallet request with
+// account-level private keys is accepted, implies the same identity as the
+// master key they were exported from, and derives a stable database
+// password distinct from the master-key scheme's.
+func TestDescriptorWalletAccountKeys(t *testing.T) {
+	t.Parallel()
+
+	_, root, identity := testDescriptorWallet(t)
+	fp, err := walletdesc.Fingerprint(root)
+	require.NoError(t, err)
+	origin := walletdesc.FormatFingerprint(fp)
+
+	derive := func(path ...uint32) string {
+		key := root
+		for _, step := range path {
+			key, err = key.Derive(
+				hdkeychain.HardenedKeyStart + step,
+			)
+			require.NoError(t, err)
+		}
+
+		return key.String()
+	}
+	texts := []string{
+		"tr([" + origin + "/86h/0h/0h]" + derive(86, 0, 0) +
+			"/<0;1>/*)",
+		"[" + origin + "/1017h/1h]" + derive(1017, 1),
+	}
+
+	source, err := parseDescriptorWalletRequest(
+		DescriptorWalletRequest{
+			Descriptors: texts,
+		}, "regtest",
+	)
+	require.NoError(t, err)
+	defer source.zero()
+	require.Nil(t, source.root)
+	require.NotNil(t, source.keys)
+
+	got, err := source.identity("regtest")
+	require.NoError(t, err)
+	require.Equal(t, identity, got)
+
+	first, err := source.dbPassword()
+	require.NoError(t, err)
+	second, err := source.dbPassword()
+	require.NoError(t, err)
+	require.Equal(t, first, second)
+	require.Len(t, first, 64)
+	require.NotEqual(t, deriveDescriptorDBPassword(root), first)
+}

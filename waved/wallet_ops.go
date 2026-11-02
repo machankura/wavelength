@@ -96,6 +96,20 @@ func WalletRootFromDescriptors(descriptors []string, network string,
 	return walletdesc.Parse(descriptors, chainParams)
 }
 
+// WalletAccountKeysFromDescriptors parses account-level private keys for
+// network, the account-key counterpart of WalletRootFromDescriptors. The
+// caller owns the result and must call Zero.
+func WalletAccountKeysFromDescriptors(descriptors []string,
+	network string) (*walletdesc.AccountKeys, error) {
+
+	chainParams, err := networkToChainParams(network)
+	if err != nil {
+		return nil, err
+	}
+
+	return walletdesc.ParseAccountKeys(descriptors, chainParams)
+}
+
 // WalletPublicDescriptors renders the public output descriptors a wallet
 // built from root watches, together with the master key fingerprint. The
 // output is safe to share and log.

@@ -11,10 +11,16 @@ import (
 	"time"
 
 	"github.com/btcsuite/btcd/btcutil/v2/hdkeychain"
+	"github.com/lightninglabs/wavelength/lib/keyfamily"
 	"github.com/lightninglabs/wavelength/walletdesc"
 	"github.com/lightninglabs/wavelength/waved"
 	"golang.org/x/crypto/hkdf"
 )
+
+// accountKeysDBKeyInfo domain-separates the database password derived from
+// an account-key wallet's identity family key, from the master-key scheme
+// above and from every other use of that key.
+const accountKeysDBKeyInfo = "wavewalletdk:descriptor-account-keys:dbpw:v1"
 
 // descriptorDBKeyInfo domain-separates the database password derived from a
 // descriptor wallet's master key from every other use of that key, and from
@@ -84,15 +90,13 @@ func StartDescriptorWalletWithContexts(startCtx, openCtx context.Context,
 
 	// Validate the descriptors and pin the identity before Start can
 	// create a directory or a database.
-	wd, err := parseDescriptorWalletRequest(req, daemonCfg.Network)
+	source, err := parseDescriptorWalletRequest(req, daemonCfg.Network)
 	if err != nil {
 		return nil, nil, err
 	}
-	defer wd.Zero()
+	defer source.zero()
 
-	identity, err := waved.WalletIdentityPubKeyFromRootKey(
-		wd.Root, daemonCfg.Network,
-	)
+	identity, err := source.identity(daemonCfg.Network)
 	if err != nil {
 		return nil, nil, fmt.Errorf("derive descriptor wallet "+
 			"identity: %w", err)
@@ -118,8 +122,18 @@ func StartDescriptorWalletWithContexts(startCtx, openCtx context.Context,
 		return nil, nil, fmt.Errorf("start descriptor wallet: %w", err)
 	}
 
+	dbPassword, err := source.dbPassword()
+	if err != nil {
+		// Stop owns its own bounded daemon-shutdown context.
+		//nolint:contextcheck
+		_ = client.Stop()
+
+		return nil, nil, err
+	}
+	defer clear(dbPassword)
+
 	result, err := client.openWalletFromDescriptors(
-		openCtx, req, wd.Root, identity,
+		openCtx, req, dbPassword, identity,
 	)
 	if err == nil {
 		err = waitForExternalSeedWalletReady(openCtx, client)
@@ -136,14 +150,76 @@ func StartDescriptorWalletWithContexts(startCtx, openCtx context.Context,
 	return client, result, nil
 }
 
+// descriptorSource is what a descriptor wallet request supplies: either
+// the master key every descriptor shares, or account-level private keys.
+type descriptorSource struct {
+	root *hdkeychain.ExtendedKey
+	keys *walletdesc.AccountKeys
+}
+
+// identity returns the daemon identity public key the source implies, hex
+// encoded.
+func (d *descriptorSource) identity(network string) (string, error) {
+	if d.root != nil {
+		return waved.WalletIdentityPubKeyFromRootKey(d.root, network)
+	}
+
+	bundle, err := d.keys.Bundle()
+	if err != nil {
+		return "", err
+	}
+	key, err := bundle.IdentityKey()
+	if err != nil {
+		return "", err
+	}
+	pub, err := key.ECPubKey()
+	if err != nil {
+		return "", err
+	}
+
+	return hex.EncodeToString(pub.SerializeCompressed()), nil
+}
+
+// dbPassword derives the wallet database password from the source. The
+// caller must clear it.
+func (d *descriptorSource) dbPassword() ([]byte, error) {
+	if d.root != nil {
+		return deriveDescriptorDBPassword(d.root), nil
+	}
+
+	return deriveAccountKeysDBPassword(d.keys)
+}
+
+// zero wipes the source's private keys.
+func (d *descriptorSource) zero() {
+	if d.root != nil {
+		d.root.Zero()
+	}
+	if d.keys != nil {
+		d.keys.Zero()
+	}
+}
+
 // parseDescriptorWalletRequest validates a request's descriptors for the
-// daemon network. The caller must zero the result.
+// daemon network: master-key descriptors, or account-level private keys.
+// The caller must zero the result.
 func parseDescriptorWalletRequest(req DescriptorWalletRequest,
-	network string) (*walletdesc.WalletDescriptors, error) {
+	network string) (*descriptorSource, error) {
 
 	if len(req.Descriptors) == 0 {
 		return nil, errors.New("descriptor wallet requires at least " +
 			"one descriptor")
+	}
+
+	if walletdesc.HasAccountKeys(req.Descriptors) {
+		keys, err := waved.WalletAccountKeysFromDescriptors(
+			req.Descriptors, network,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("invalid account keys: %w", err)
+		}
+
+		return &descriptorSource{keys: keys}, nil
 	}
 
 	wd, err := waved.WalletRootFromDescriptors(
@@ -156,23 +232,20 @@ func parseDescriptorWalletRequest(req DescriptorWalletRequest,
 		return nil, fmt.Errorf("invalid descriptors: %w", err)
 	}
 
-	return wd, nil
+	return &descriptorSource{root: wd.Root}, nil
 }
 
 // openWalletFromDescriptors imports the descriptors into an empty daemon or
 // unlocks the existing wallet with the password derived from their master
 // key, then checks the opened wallet's identity matches the descriptors.
 func (c *Client) openWalletFromDescriptors(ctx context.Context,
-	req DescriptorWalletRequest, root *hdkeychain.ExtendedKey,
-	identity string) (*DescriptorWalletOpenResult, error) {
+	req DescriptorWalletRequest, dbPassword []byte, identity string) (
+	*DescriptorWalletOpenResult, error) {
 
 	if req.RecoverState && c.recoverWalletState == nil {
 		return nil, errors.New("wallet state recovery requires an " +
 			"embedded client")
 	}
-
-	dbPassword := deriveDescriptorDBPassword(root)
-	defer clear(dbPassword)
 
 	info, err := c.GetInfo(ctx)
 	if err != nil {
@@ -294,4 +367,36 @@ func verifyDescriptorWalletIdentity(expected, actual string) error {
 
 	return fmt.Errorf("descriptor wallet identity mismatch: expected "+
 		"%s, got %s", expected, actual)
+}
+
+// deriveAccountKeysDBPassword derives the database password of an
+// account-key wallet from the identity family's account private key, which
+// every account key set carries in either form. The caller must clear it.
+func deriveAccountKeysDBPassword(keys *walletdesc.AccountKeys) ([]byte, error) {
+	acct, ok := keys.Account(
+		walletdesc.PurposeKeyFamily, uint32(keyfamily.Identity),
+	)
+	if !ok {
+		return nil, errors.New("account keys have no identity family")
+	}
+
+	priv, err := acct.Key.ECPrivKey()
+	if err != nil {
+		return nil, err
+	}
+
+	secret := append(priv.Serialize(), acct.Key.ChainCode()...)
+	defer clear(secret)
+
+	rawPassword := make([]byte, 32)
+	reader := hkdf.New(
+		sha256.New, secret, nil, []byte(accountKeysDBKeyInfo),
+	)
+	_, _ = io.ReadFull(reader, rawPassword)
+	defer clear(rawPassword)
+
+	password := make([]byte, hex.EncodedLen(len(rawPassword)))
+	hex.Encode(password, rawPassword)
+
+	return password, nil
 }
