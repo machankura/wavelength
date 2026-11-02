@@ -43,4 +43,15 @@ func TestWalletKeyOriginStore(t *testing.T) {
 	got, err = store.Get(ctx)
 	require.NoError(t, err)
 	require.Equal(t, second, got.UnwrapOrFail(t))
+
+	// A watch-only bundle may name no fingerprint at all.
+	third := WalletKeyOrigin{
+		RootFingerprint: 0,
+		Source:          WalletKeySourceWatchOnly,
+	}
+	require.NoError(t, store.Put(ctx, third, time.Unix(300, 0)))
+
+	got, err = store.Get(ctx)
+	require.NoError(t, err)
+	require.Equal(t, third, got.UnwrapOrFail(t))
 }

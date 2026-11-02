@@ -1853,7 +1853,8 @@ CREATE TABLE wallet_key_origin (
     -- source records how the wallet was created:
     --   0 = aezeed mnemonic or raw seed
     --   1 = output descriptors
-    source INTEGER NOT NULL CHECK (source IN (0, 1)),
+    --   2 = watch-only bundle of account public keys, signed remotely
+    source INTEGER NOT NULL CHECK (source IN (0, 1, 2)),
 
     -- created_at is the unix timestamp when the row was written.
     created_at BIGINT NOT NULL

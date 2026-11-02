@@ -20,6 +20,10 @@ const (
 
 	// WalletKeySourceDescriptors is a set of output descriptors.
 	WalletKeySourceDescriptors WalletKeySource = 1
+
+	// WalletKeySourceWatchOnly is a bundle of account public keys whose
+	// private keys live on a remote signer.
+	WalletKeySourceWatchOnly WalletKeySource = 2
 )
 
 // WalletKeyOrigin is the public metadata about a wallet's BIP32 master key
