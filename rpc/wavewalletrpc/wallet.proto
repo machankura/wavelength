@@ -275,8 +275,13 @@ message CreateRequest {
 
     // birthday_unix is the earliest time, in Unix seconds, at which the
     // descriptor keys may have received funds. Zero scans from genesis.
-    // Only used with descriptors.
+    // Only used with descriptors or a watch-only bundle.
     int64 birthday_unix = 7;
+
+    // watch_only_bundle holds account public keys for a wallet whose
+    // private keys stay on a remote signer. See
+    // waverpc.InitWalletRequest.watch_only_bundle for the accepted forms.
+    bytes watch_only_bundle = 8;
 }
 
 // CreateResponse returns the wallet mnemonic and identity, plus a summary of

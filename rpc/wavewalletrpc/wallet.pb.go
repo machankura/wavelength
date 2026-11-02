@@ -762,10 +762,14 @@ type CreateRequest struct {
 	Descriptors []string `protobuf:"bytes,6,rep,name=descriptors,proto3" json:"descriptors,omitempty"`
 	// birthday_unix is the earliest time, in Unix seconds, at which the
 	// descriptor keys may have received funds. Zero scans from genesis.
-	// Only used with descriptors.
-	BirthdayUnix  int64 `protobuf:"varint,7,opt,name=birthday_unix,json=birthdayUnix,proto3" json:"birthday_unix,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	// Only used with descriptors or a watch-only bundle.
+	BirthdayUnix int64 `protobuf:"varint,7,opt,name=birthday_unix,json=birthdayUnix,proto3" json:"birthday_unix,omitempty"`
+	// watch_only_bundle holds account public keys for a wallet whose
+	// private keys stay on a remote signer. See
+	// waverpc.InitWalletRequest.watch_only_bundle for the accepted forms.
+	WatchOnlyBundle []byte `protobuf:"bytes,8,opt,name=watch_only_bundle,json=watchOnlyBundle,proto3" json:"watch_only_bundle,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
 }
 
 func (x *CreateRequest) Reset() {
@@ -845,6 +849,13 @@ func (x *CreateRequest) GetBirthdayUnix() int64 {
 		return x.BirthdayUnix
 	}
 	return 0
+}
+
+func (x *CreateRequest) GetWatchOnlyBundle() []byte {
+	if x != nil {
+		return x.WatchOnlyBundle
+	}
+	return nil
 }
 
 // CreateResponse returns the wallet mnemonic and identity, plus a summary of
@@ -5866,7 +5877,7 @@ var File_wallet_proto protoreflect.FileDescriptor
 
 const file_wallet_proto_rawDesc = "" +
 	"\n" +
-	"\fwallet.proto\x12\rwavewalletrpc\"\x92\x02\n" +
+	"\fwallet.proto\x12\rwavewalletrpc\"\xbe\x02\n" +
 	"\rCreateRequest\x12'\n" +
 	"\x0fwallet_password\x18\x01 \x01(\fR\x0ewalletPassword\x12'\n" +
 	"\x0fseed_passphrase\x18\x02 \x01(\fR\x0eseedPassphrase\x12\x1a\n" +
@@ -5874,7 +5885,8 @@ const file_wallet_proto_rawDesc = "" +
 	"\rrecover_state\x18\x04 \x01(\bR\frecoverState\x12'\n" +
 	"\x0frecovery_window\x18\x05 \x01(\rR\x0erecoveryWindow\x12 \n" +
 	"\vdescriptors\x18\x06 \x03(\tR\vdescriptors\x12#\n" +
-	"\rbirthday_unix\x18\a \x01(\x03R\fbirthdayUnix\"\xdf\x03\n" +
+	"\rbirthday_unix\x18\a \x01(\x03R\fbirthdayUnix\x12*\n" +
+	"\x11watch_only_bundle\x18\b \x01(\fR\x0fwatchOnlyBundle\"\xdf\x03\n" +
 	"\x0eCreateResponse\x12\x1a\n" +
 	"\bmnemonic\x18\x01 \x03(\tR\bmnemonic\x12'\n" +
 	"\x0fidentity_pubkey\x18\x02 \x01(\tR\x0eidentityPubkey\x12!\n" +

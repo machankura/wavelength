@@ -516,6 +516,17 @@ message InitWalletRequest {
     // Zero scans from genesis, which is slow but never misses funds. Only
     // used with descriptors: a mnemonic carries its own birthday.
     int64 birthday_unix = 7;
+
+    // watch_only_bundle holds account public keys only, for a wallet whose
+    // private keys stay on the remote signer configured with
+    // wallet.remotesigner. It is either the JSON an lnd signer prints for
+    // `lncli wallet accounts list`, or one entry per line: a tr() or wpkh()
+    // account descriptor, or a [fingerprint/1017h/coinh/familyh]XPUB/0/*
+    // key family entry. It must cover BIP86 account 0 and key families 0 to
+    // 255. Mutually exclusive with mnemonic, seed_passphrase and
+    // descriptors, and required when the daemon signs remotely.
+    // birthday_unix bounds the first rescan as it does for descriptors.
+    bytes watch_only_bundle = 8;
 }
 
 message InitWalletResponse {

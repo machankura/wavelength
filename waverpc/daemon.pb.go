@@ -1396,9 +1396,19 @@ type InitWalletRequest struct {
 	// descriptor keys may have received funds. It bounds the first rescan.
 	// Zero scans from genesis, which is slow but never misses funds. Only
 	// used with descriptors: a mnemonic carries its own birthday.
-	BirthdayUnix  int64 `protobuf:"varint,7,opt,name=birthday_unix,json=birthdayUnix,proto3" json:"birthday_unix,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	BirthdayUnix int64 `protobuf:"varint,7,opt,name=birthday_unix,json=birthdayUnix,proto3" json:"birthday_unix,omitempty"`
+	// watch_only_bundle holds account public keys only, for a wallet whose
+	// private keys stay on the remote signer configured with
+	// wallet.remotesigner. It is either the JSON an lnd signer prints for
+	// `lncli wallet accounts list`, or one entry per line: a tr() or wpkh()
+	// account descriptor, or a [fingerprint/1017h/coinh/familyh]XPUB/0/*
+	// key family entry. It must cover BIP86 account 0 and key families 0 to
+	// 255. Mutually exclusive with mnemonic, seed_passphrase and
+	// descriptors, and required when the daemon signs remotely.
+	// birthday_unix bounds the first rescan as it does for descriptors.
+	WatchOnlyBundle []byte `protobuf:"bytes,8,opt,name=watch_only_bundle,json=watchOnlyBundle,proto3" json:"watch_only_bundle,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
 }
 
 func (x *InitWalletRequest) Reset() {
@@ -1478,6 +1488,13 @@ func (x *InitWalletRequest) GetBirthdayUnix() int64 {
 		return x.BirthdayUnix
 	}
 	return 0
+}
+
+func (x *InitWalletRequest) GetWatchOnlyBundle() []byte {
+	if x != nil {
+		return x.WatchOnlyBundle
+	}
+	return nil
 }
 
 type InitWalletResponse struct {
@@ -11617,7 +11634,7 @@ const file_daemon_proto_rawDesc = "" +
 	"\x0fseed_passphrase\x18\x01 \x01(\fR\x0eseedPassphrase\"V\n" +
 	"\x0fGenSeedResponse\x12\x1a\n" +
 	"\bmnemonic\x18\x01 \x03(\tR\bmnemonic\x12'\n" +
-	"\x0fenciphered_seed\x18\x02 \x01(\fR\x0eencipheredSeed\"\x96\x02\n" +
+	"\x0fenciphered_seed\x18\x02 \x01(\fR\x0eencipheredSeed\"\xc2\x02\n" +
 	"\x11InitWalletRequest\x12\x1a\n" +
 	"\bmnemonic\x18\x01 \x03(\tR\bmnemonic\x12'\n" +
 	"\x0fwallet_password\x18\x02 \x01(\fR\x0ewalletPassword\x12'\n" +
@@ -11625,7 +11642,8 @@ const file_daemon_proto_rawDesc = "" +
 	"\rrecover_state\x18\x04 \x01(\bR\frecoverState\x12'\n" +
 	"\x0frecovery_window\x18\x05 \x01(\rR\x0erecoveryWindow\x12 \n" +
 	"\vdescriptors\x18\x06 \x03(\tR\vdescriptors\x12#\n" +
-	"\rbirthday_unix\x18\a \x01(\x03R\fbirthdayUnix\"\xc7\x03\n" +
+	"\rbirthday_unix\x18\a \x01(\x03R\fbirthdayUnix\x12*\n" +
+	"\x11watch_only_bundle\x18\b \x01(\fR\x0fwatchOnlyBundle\"\xc7\x03\n" +
 	"\x12InitWalletResponse\x12'\n" +
 	"\x0fidentity_pubkey\x18\x01 \x01(\tR\x0eidentityPubkey\x12!\n" +
 	"\frecovery_ran\x18\x02 \x01(\bR\vrecoveryRan\x12@\n" +
