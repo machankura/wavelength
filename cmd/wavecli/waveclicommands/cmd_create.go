@@ -50,6 +50,16 @@ func newCreateCmd() *cobra.Command {
 			"without it the wallet scans from genesis. The " +
 			"response lists the public descriptors the wallet " +
 			"watches.\n\n" +
+			"The descriptor file may instead hold account-level " +
+			"private keys, for keys exported from other " +
+			"software without the master key: the tr() account " +
+			"xprv at [fp/86h/0h/0h], optionally wpkh() at " +
+			"[fp/84h/0h/0h], and the key families as one " +
+			"[fp/1017h/COINh]xprv line or one " +
+			"[fp/1017h/COINh/FAMILYh]xprv/0/* line per family " +
+			"0 to 255. The wallet keeps them encrypted under " +
+			"the wallet password and signs with them in " +
+			"process.\n\n" +
 			"With --watch-only-bundle-file the wallet holds " +
 			"public keys only and every signature comes from " +
 			"the daemon's wallet.remotesigner. The bundle is " +
@@ -83,9 +93,9 @@ func newCreateCmd() *cobra.Command {
 		"number of key indexes to scan per recovery family "+
 			"(default: daemon wallet.recoverywindow)")
 	cmd.Flags().String("descriptor-file", "",
-		"path to file containing private output descriptors, one "+
-			"per line, to build the wallet from instead of a "+
-			"mnemonic")
+		"path to file containing private output descriptors or "+
+			"account-level private keys, one per line, to build "+
+			"the wallet from instead of a mnemonic")
 	cmd.Flags().String("watch-only-bundle-file", "",
 		"path to the remote signer's account public keys, for a "+
 			"wallet whose private keys stay on that signer")

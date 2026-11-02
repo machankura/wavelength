@@ -760,6 +760,10 @@ type walletCreateInput struct {
 	// watchOnly creates a remote-signing wallet from account public
 	// keys; it needs wallet.remotesigner and excludes seed and rootKey.
 	watchOnly *walletdesc.WatchOnlyBundle
+
+	// accountKeys creates a wallet from account-level private keys that
+	// it signs with in process; it excludes every other input.
+	accountKeys *walletdesc.AccountKeys
 }
 
 // startSelfManagedWallet starts the appropriate self-managed wallet

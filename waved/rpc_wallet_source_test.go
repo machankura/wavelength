@@ -366,3 +366,68 @@ func TestPrepareWalletCreateInputWatchOnly(t *testing.T) {
 		t, fromMnemonic.publicDescriptors, fromBundle.publicDescriptors,
 	)
 }
+
+// TestPrepareWalletCreateInputAccountKeys checks account-level private keys
+// in the descriptors field prepare an account-key creation input that
+// reports the same public descriptors and fingerprint as the mnemonic of
+// the master key they came from.
+func TestPrepareWalletCreateInputAccountKeys(t *testing.T) {
+	t.Parallel()
+
+	mnemonic, root := compatibleTestMnemonic(t)
+	fp, err := walletdesc.Fingerprint(root)
+	require.NoError(t, err)
+	origin := walletdesc.FormatFingerprint(fp)
+
+	derive := func(path ...uint32) *hdkeychain.ExtendedKey {
+		key := root
+		for _, step := range path {
+			key, err = key.Derive(
+				hdkeychain.HardenedKeyStart + step,
+			)
+			require.NoError(t, err)
+		}
+
+		return key
+	}
+
+	fromMnemonic, err := prepareWalletCreateInput(
+		&waverpc.InitWalletRequest{
+			Mnemonic:       mnemonic[:],
+			WalletPassword: []byte(testDescriptorPassword),
+		}, "regtest",
+	)
+	require.NoError(t, err)
+	defer fromMnemonic.zero()
+
+	fromKeys, err := prepareWalletCreateInput(
+		&waverpc.InitWalletRequest{
+			Descriptors: []string{
+				fmt.Sprintf("tr([%s/86h/0h/0h]%s/<0;1>/*)",
+					origin, derive(86, 0, 0)),
+				fmt.Sprintf("wpkh([%s/84h/0h/0h]%s/<0;1>/*)",
+					origin, derive(84, 0, 0)),
+				fmt.Sprintf("[%s/1017h/1h]%s", origin,
+					derive(1017, 1)),
+			},
+			BirthdayUnix:   1_700_000_000,
+			WalletPassword: []byte(testDescriptorPassword),
+		}, "regtest",
+	)
+	require.NoError(t, err)
+
+	require.NotNil(t, fromKeys.input.accountKeys)
+	require.Nil(t, fromKeys.input.rootKey)
+	require.Equal(t, db.WalletKeySourceAccountKeys, fromKeys.source)
+	require.Equal(t, fromMnemonic.rootFingerprint, fromKeys.rootFingerprint)
+	require.Equal(
+		t, fromMnemonic.publicDescriptors, fromKeys.publicDescriptors,
+	)
+
+	fromKeys.zero()
+	require.NotEqual(
+		t, derive(86, 0, 0).String(),
+		fromKeys.input.accountKeys.Accounts[0].Key.String(),
+		"zero must wipe the account keys",
+	)
+}

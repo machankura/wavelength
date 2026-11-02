@@ -121,6 +121,46 @@ func prepareWalletCreateInput(req *waverpc.InitWalletRequest,
 		}, nil
 	}
 
+	// Account key path: account-level private keys, signed with in
+	// process from the wallet's encrypted keystore.
+	if walletdesc.HasAccountKeys(req.GetDescriptors()) {
+		birthday, err := BirthdayFromUnix(req.GetBirthdayUnix())
+		if err != nil {
+			return nil, err
+		}
+
+		keys, err := walletdesc.ParseAccountKeys(
+			req.GetDescriptors(), chainParams,
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		bundle, err := keys.Bundle()
+		if err != nil {
+			keys.Zero()
+
+			return nil, err
+		}
+		public, err := watchOnlyPublicDescriptors(bundle, chainParams)
+		if err != nil {
+			keys.Zero()
+
+			return nil, err
+		}
+
+		return &preparedWalletCreate{
+			input: walletCreateInput{
+				accountKeys: keys,
+				birthday:    birthday,
+			},
+			publicDescriptors: public,
+			rootFingerprint:   keys.MasterFingerprint,
+			source:            db.WalletKeySourceAccountKeys,
+			zero:              keys.Zero,
+		}, nil
+	}
+
 	// Descriptor path: the descriptors' shared master key is the
 	// creation input.
 	if len(req.GetDescriptors()) > 0 {

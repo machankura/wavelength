@@ -206,9 +206,10 @@ func walletAdminMethodRegistry() []schemaMethod {
 					Name: "descriptor-file",
 					Type: "string",
 					Description: "path to private " +
-						"output descriptors to " +
-						"build the wallet from " +
-						"instead of a mnemonic",
+						"output descriptors or " +
+						"account-level private " +
+						"keys to build the wallet " +
+						"from instead of a mnemonic",
 				},
 				{
 					Name: "watch-only-bundle-file",
