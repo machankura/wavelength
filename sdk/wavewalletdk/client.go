@@ -234,9 +234,15 @@ func (c *Client) CreateWallet(ctx context.Context, req CreateWalletRequest) (
 	*CreateWalletResult, error) {
 
 	mnemonic := append([]string(nil), req.Mnemonic...)
+	descriptors := append([]string(nil), req.Descriptors...)
 	var encipheredSeed []byte
 
-	if len(mnemonic) == 0 {
+	var birthdayUnix int64
+	if !req.Birthday.IsZero() {
+		birthdayUnix = req.Birthday.Unix()
+	}
+
+	if len(mnemonic) == 0 && len(descriptors) == 0 {
 		seed, err := c.daemon.GenSeed(ctx, &waverpc.GenSeedRequest{
 			SeedPassphrase: bytes.Clone(req.SeedPassphrase),
 		})
@@ -255,6 +261,8 @@ func (c *Client) CreateWallet(ctx context.Context, req CreateWalletRequest) (
 			WalletPassword: bytes.Clone(req.WalletPassword),
 			RecoverState:   req.RecoverState,
 			RecoveryWindow: req.RecoveryWindow,
+			Descriptors:    descriptors,
+			BirthdayUnix:   birthdayUnix,
 		},
 	)
 	if err != nil {
@@ -262,10 +270,14 @@ func (c *Client) CreateWallet(ctx context.Context, req CreateWalletRequest) (
 	}
 
 	return &CreateWalletResult{
-		Mnemonic:       mnemonic,
-		EncipheredSeed: encipheredSeed,
-		IdentityPubKey: initResp.GetIdentityPubkey(),
-		RecoveryRan:    initResp.GetRecoveryRan(),
+		Mnemonic:        mnemonic,
+		EncipheredSeed:  encipheredSeed,
+		IdentityPubKey:  initResp.GetIdentityPubkey(),
+		RootFingerprint: initResp.GetRootFingerprint(),
+		Descriptors: append(
+			[]string(nil), initResp.GetDescriptors()...,
+		),
+		RecoveryRan: initResp.GetRecoveryRan(),
 		RecoveredBoardingAddresses: initResp.
 			GetRecoveredBoardingAddresses(),
 		RecoveredBoardingUTXOs: initResp.
@@ -274,6 +286,34 @@ func (c *Client) CreateWallet(ctx context.Context, req CreateWalletRequest) (
 		RecoveredOORReceiveScripts: initResp.
 			GetRecoveredOorReceiveScripts(),
 		RecoveredOORRecipientEvents: initResp.GetRecoveredOorEvents(),
+	}, nil
+}
+
+// ListWalletDescriptors returns the embedded wallet's output descriptors.
+// Private export requires resupplying the wallet's mnemonic or root
+// descriptors; see ListWalletDescriptorsRequest.
+func (c *Client) ListWalletDescriptors(ctx context.Context,
+	req ListWalletDescriptorsRequest) (*ListWalletDescriptorsResult,
+	error) {
+
+	resp, err := c.daemon.ListWalletDescriptors(ctx,
+		&waverpc.ListWalletDescriptorsRequest{
+			IncludePrivate: req.IncludePrivate,
+			Mnemonic:       append([]string(nil), req.Mnemonic...),
+			SeedPassphrase: bytes.Clone(req.SeedPassphrase),
+			Descriptors: append(
+				[]string(nil), req.Descriptors...,
+			),
+		},
+	)
+	if err != nil {
+		return nil, fmt.Errorf("list wallet descriptors: %w", err)
+	}
+
+	return &ListWalletDescriptorsResult{
+		RootFingerprint: resp.GetRootFingerprint(),
+		Descriptors:     append([]string(nil), resp.GetDescriptors()...),
+		IncludesPrivate: resp.GetIncludesPrivate(),
 	}, nil
 }
 

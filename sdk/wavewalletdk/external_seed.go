@@ -385,9 +385,17 @@ func validateExternalSeedWalletRequest(seedEntropy []byte) error {
 // state and auto-unlock paths could escape that selected directory or bypass
 // proof that the existing DB belongs to this request, so they are rejected.
 func validateExternalSeedWalletConfig(cfg Config) error {
+	return validateHostOwnedWalletConfig(cfg, "external-seed")
+}
+
+// validateHostOwnedWalletConfig applies the external-seed storage and
+// backend rules to any wallet whose key material and data directory the host
+// owns. kind names the wallet in error messages, for example "external-seed"
+// or "descriptor".
+func validateHostOwnedWalletConfig(cfg Config, kind string) error {
 	if cfg.DataDir == "" {
-		return errors.New("external-seed wallet requires an explicit " +
-			"final data directory")
+		return fmt.Errorf("%s wallet requires an explicit final data "+
+			"directory", kind)
 	}
 
 	walletType := cfg.WalletType
@@ -402,41 +410,41 @@ func validateExternalSeedWalletConfig(cfg Config) error {
 	switch walletType {
 	case waved.WalletTypeLwwallet, waved.WalletTypeBtcwallet:
 	default:
-		return fmt.Errorf("wallet type %q cannot be initialized from "+
-			"external seed entropy", walletType)
+		return fmt.Errorf("wallet type %q cannot be used for "+
+			"%s wallets", walletType, kind)
 	}
 
 	if cfg.WalletPasswordFile != "" {
-		return errors.New("wallet password file is incompatible with " +
-			"external-seed wallets")
+		return fmt.Errorf("wallet password file is incompatible with "+
+			"%s wallets", kind)
 	}
 	if cfg.SwapDatabaseFileName != "" {
-		return errors.New("custom swap database path is incompatible " +
-			"with external-seed wallets")
+		return fmt.Errorf("custom swap database path is incompatible "+
+			"with %s wallets", kind)
 	}
 	if cfg.DaemonConfig == nil {
 		return nil
 	}
 	if cfg.DaemonConfig.LogDirPath != "" {
-		return errors.New("daemon custom log directory is " +
-			"incompatible with external-seed wallets")
+		return fmt.Errorf("daemon custom log directory is "+
+			"incompatible with %s wallets", kind)
 	}
 
 	if cfg.DaemonConfig.Wallet != nil {
 		walletCfg := cfg.DaemonConfig.Wallet
 		if walletCfg.PasswordFile != "" {
-			return errors.New("daemon wallet password file is " +
-				"incompatible with external-seed wallets")
+			return fmt.Errorf("daemon wallet password file is "+
+				"incompatible with %s wallets", kind)
 		}
 		if walletCfg.BtcwalletDataDir != "" {
-			return errors.New("custom btcwallet datadir is " +
-				"incompatible with external-seed wallets")
+			return fmt.Errorf("custom btcwallet datadir is "+
+				"incompatible with %s wallets", kind)
 		}
 	}
 	if cfg.DaemonConfig.Swap != nil &&
 		cfg.DaemonConfig.Swap.DatabaseFileName != "" {
-		return errors.New("daemon custom swap database path is " +
-			"incompatible with external-seed wallets")
+		return fmt.Errorf("daemon custom swap database path is "+
+			"incompatible with %s wallets", kind)
 	}
 
 	return nil

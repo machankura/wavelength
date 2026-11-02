@@ -31,6 +31,14 @@ type stubDaemonServer struct {
 	unlockCalled  bool
 	lastInitReq   *waverpc.InitWalletRequest
 	lastUnlockReq *waverpc.UnlockWalletRequest
+
+	// unlockIdentity, when set, replaces the fixed identity UnlockWallet
+	// reports.
+	unlockIdentity string
+
+	// listDescriptorsResp is returned by ListWalletDescriptors.
+	listDescriptorsResp *waverpc.ListWalletDescriptorsResponse
+	listDescriptorsReq  *waverpc.ListWalletDescriptorsRequest
 }
 
 // GetInfo reports the configured wallet state so the SDK can branch between
@@ -94,7 +102,27 @@ func (s *stubDaemonServer) UnlockWallet(_ context.Context,
 		return nil, s.unlockErr
 	}
 
+	if s.unlockIdentity != "" {
+		return &waverpc.UnlockWalletResponse{
+			IdentityPubkey: s.unlockIdentity,
+		}, nil
+	}
+
 	return &waverpc.UnlockWalletResponse{IdentityPubkey: "unlock-id"}, nil
+}
+
+// ListWalletDescriptors records the request and returns the configured
+// response.
+func (s *stubDaemonServer) ListWalletDescriptors(_ context.Context,
+	req *waverpc.ListWalletDescriptorsRequest) (
+	*waverpc.ListWalletDescriptorsResponse, error) {
+
+	s.listDescriptorsReq = req
+	if s.listDescriptorsResp != nil {
+		return s.listDescriptorsResp, nil
+	}
+
+	return &waverpc.ListWalletDescriptorsResponse{}, nil
 }
 
 // newStubClient wires a wavewalletdk Client to an in-process stub daemon over a

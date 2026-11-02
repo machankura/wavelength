@@ -105,6 +105,43 @@ if err != nil {
 fmt.Println("identity:", unlocked.IdentityPubKey)
 ```
 
+### Wallets defined by output descriptors
+
+`StartDescriptorWallet` imports or unlocks a self-managed wallet from private
+output descriptors that share one BIP32 master key, for example
+`tr(tprv.../86h/0h/0h/<0;1>/*)` and `wpkh(tprv.../84h/0h/0h/<0;1>/*)`. The
+accepted forms and refusals are those of `walletdesc.Parse`: coin type `0'` on
+every network, account 0, branch `0`, `1` or `<0;1>`. As with external seeds,
+the host passes the final `Config.DataDir` and keeps the descriptors in its
+own secure storage; the local database password is derived from the master
+key with HKDF and an info string of its own.
+
+```go
+cfg.DataDir = finalWalletDataDir
+
+client, opened, err := wavewalletdk.StartDescriptorWallet(
+	ctx, cfg, wavewalletdk.DescriptorWalletRequest{
+		Descriptors:            privateDescriptors,
+		Birthday:               firstUseDate, // zero scans from genesis
+		ExpectedIdentityPubKey: previouslyPinnedIdentity,
+	},
+)
+if err != nil {
+	panic(err)
+}
+defer client.Stop()
+
+fmt.Println("identity:", opened.IdentityPubKey)
+fmt.Println("watch-only descriptors:", opened.Descriptors)
+```
+
+The identity derived from the descriptors is always checked against the
+opened wallet, pinned or not, and an optional pin is checked before the
+daemon starts. `CreateWallet` also accepts `Descriptors` and `Birthday`
+directly. `Client.ListWalletDescriptors` returns the public descriptors, or
+the private ones when the request resupplies the wallet's mnemonic or root
+descriptors; this is how a mnemonic wallet is moved into descriptor software.
+
 ### Externally derived wallet entropy
 
 `StartExternalSeedWallet` imports or unlocks a self-managed wallet from exactly
@@ -346,4 +383,4 @@ When generating wallet code against `wavewalletdk`, follow this checklist:
 10. Call `Stop` during app shutdown.
 11. Never log wallet passwords, seed passphrases, mnemonics, or full invoices
     unless the product explicitly asks for that debug behavior.
-12. Never log external seed entropy.
+12. Never log external seed entropy or private descriptors.

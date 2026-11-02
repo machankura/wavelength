@@ -32,6 +32,17 @@ For field-level detail, use `go doc github.com/lightninglabs/wavelength/sdk/wave
 - `ExternalSeedWalletRequest` / `ExternalSeedWalletOpenResult` — 16 bytes of
   already-derived aezeed entropy with optional identity and recovery inputs,
   and the resulting identity and recovery counters. No mnemonic is returned.
+- `DescriptorWalletRequest` / `DescriptorWalletOpenResult` /
+  `StartDescriptorWallet` / `StartDescriptorWalletWithContexts` — the
+  descriptor counterpart of the external-seed path: private descriptors
+  sharing one master key, an optional birthday and identity pin, and the
+  same start/open/readiness/rollback contract. The database password is HKDF
+  over the master private key and chain code with info
+  `wavewalletdk:descriptor:dbpw:v1` (golden-vector tested); the derived
+  identity is always checked against the opened wallet.
+- `ListWalletDescriptorsRequest` / `ListWalletDescriptorsResult` /
+  `Client.ListWalletDescriptors` — public descriptor export, or private export
+  authorized by the resupplied mnemonic or root descriptors.
 - `Start(ctx, cfg, opts...)` — boots the embedded daemon, dials it,
   waits for gRPC readiness, and returns a ready `*Client`. The daemon
   lifetime is owned by wavewalletdk's `runCtx`, not the caller's `ctx`, so

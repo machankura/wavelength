@@ -109,27 +109,57 @@ func (i *Info) WalletReady() bool {
 	return i.WalletState == WalletStateReady
 }
 
-// CreateWalletRequest creates or imports a daemon wallet.
+// CreateWalletRequest creates or imports a daemon wallet. Set Mnemonic to
+// import an aezeed mnemonic, or Descriptors to import private output
+// descriptors that share one BIP32 master key; leave both empty to generate
+// a fresh mnemonic. Birthday bounds the first rescan of a descriptor import
+// (zero scans from genesis) and is ignored for mnemonics, which carry their
+// own.
 type CreateWalletRequest struct {
 	Mnemonic       []string
 	SeedPassphrase []byte
 	WalletPassword []byte
 	RecoverState   bool
 	RecoveryWindow uint32
+	Descriptors    []string
+	Birthday       time.Time
 }
 
-// CreateWalletResult returns the seed words, daemon identity, and optional
-// recovery counters.
+// CreateWalletResult returns the seed words, daemon identity, the public
+// descriptors the wallet watches, and optional recovery counters. Mnemonic
+// and EncipheredSeed are empty for a descriptor import.
 type CreateWalletResult struct {
 	Mnemonic                    []string
 	EncipheredSeed              []byte
 	IdentityPubKey              string
+	RootFingerprint             string
+	Descriptors                 []string
 	RecoveryRan                 bool
 	RecoveredBoardingAddresses  uint32
 	RecoveredBoardingUTXOs      uint32
 	RecoveredVTXOs              uint32
 	RecoveredOORReceiveScripts  uint32
 	RecoveredOORRecipientEvents uint32
+}
+
+// ListWalletDescriptorsRequest selects public or private descriptor export.
+// IncludePrivate requires the wallet's Mnemonic (with SeedPassphrase when
+// one was used) or its private root Descriptors, which the daemon checks
+// against the open wallet before rendering private descriptors.
+type ListWalletDescriptorsRequest struct {
+	IncludePrivate bool
+	Mnemonic       []string
+	SeedPassphrase []byte
+	Descriptors    []string
+}
+
+// ListWalletDescriptorsResult carries the wallet's tr and wpkh descriptors.
+// RootFingerprint is empty for a wallet whose fingerprint was never
+// recorded; its public descriptors then carry no key origin.
+type ListWalletDescriptorsResult struct {
+	RootFingerprint string
+	Descriptors     []string
+	IncludesPrivate bool
 }
 
 // UnlockWalletRequest unlocks an existing embedded daemon wallet.
