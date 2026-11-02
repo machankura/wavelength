@@ -353,6 +353,20 @@ func (c *DaemonServiceClient) ListWalletDescriptors(ctx context.Context,
 	return out, err
 }
 
+// ListArkOutputDescriptors returns rawtr() descriptors for the wallet's Ark
+// outputs.
+func (c *DaemonServiceClient) ListArkOutputDescriptors(ctx context.Context,
+	in *waverpc.ListArkOutputDescriptorsRequest, _ ...grpc.CallOption) (
+	*waverpc.ListArkOutputDescriptorsResponse, error) {
+
+	out := new(waverpc.ListArkOutputDescriptorsResponse)
+	err := c.client.Post(
+		ctx, "/v1/daemon/list-ark-output-descriptors", in, out,
+	)
+
+	return out, err
+}
+
 // GetBalance returns the daemon wallet balance.
 func (c *DaemonServiceClient) GetBalance(ctx context.Context,
 	in *waverpc.GetBalanceRequest, _ ...grpc.CallOption) (

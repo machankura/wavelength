@@ -52,6 +52,13 @@ func generatedRegistry() []serviceSpec {
 					Comments: "ListWalletDescriptors returns the output descriptors of the\nself-managed wallet: by default the public account-level tr and wpkh\ndescriptors, which are safe to import into watch-only software. With\ninclude_private the caller must resupply the wallet's mnemonic or\nroot descriptors; the daemon checks them against the open wallet and\nonly then renders private descriptors, so an unlocked daemon never\nreveals key material on its own. Only available in lwwallet and\nbtcwallet mode once the wallet is ready.",
 				},
 				{
+					Name:     "ListArkOutputDescriptors",
+					Aliases:  []string{"list-ark-output-descriptors"},
+					Input:    "waverpc.ListArkOutputDescriptorsRequest",
+					Output:   "waverpc.ListArkOutputDescriptorsResponse",
+					Comments: "ListArkOutputDescriptors returns one rawtr() output descriptor for\nevery Ark output the wallet knows about: boarding outputs, live VTXOs\n(which reach the chain on a unilateral exit) and out-of-round receive\nscripts. The descriptors let external watch-only software track these\noutputs on chain. They are read straight from the stored output\nscripts, so they are exact, but they describe outputs only: spending\nstill needs Wavelength or the operator, because no external wallet can\nbuild the Ark leaf witness from a rawtr() descriptor.",
+				},
+				{
 					Name:     "GetBalance",
 					Aliases:  []string{"get-balance"},
 					Input:    "waverpc.GetBalanceRequest",

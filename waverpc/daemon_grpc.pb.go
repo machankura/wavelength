@@ -24,6 +24,7 @@ const (
 	DaemonService_InitWallet_FullMethodName                                     = "/waverpc.DaemonService/InitWallet"
 	DaemonService_UnlockWallet_FullMethodName                                   = "/waverpc.DaemonService/UnlockWallet"
 	DaemonService_ListWalletDescriptors_FullMethodName                          = "/waverpc.DaemonService/ListWalletDescriptors"
+	DaemonService_ListArkOutputDescriptors_FullMethodName                       = "/waverpc.DaemonService/ListArkOutputDescriptors"
 	DaemonService_GetBalance_FullMethodName                                     = "/waverpc.DaemonService/GetBalance"
 	DaemonService_ListVTXOs_FullMethodName                                      = "/waverpc.DaemonService/ListVTXOs"
 	DaemonService_NewAddress_FullMethodName                                     = "/waverpc.DaemonService/NewAddress"
@@ -103,6 +104,15 @@ type DaemonServiceClient interface {
 	// reveals key material on its own. Only available in lwwallet and
 	// btcwallet mode once the wallet is ready.
 	ListWalletDescriptors(ctx context.Context, in *ListWalletDescriptorsRequest, opts ...grpc.CallOption) (*ListWalletDescriptorsResponse, error)
+	// ListArkOutputDescriptors returns one rawtr() output descriptor for
+	// every Ark output the wallet knows about: boarding outputs, live VTXOs
+	// (which reach the chain on a unilateral exit) and out-of-round receive
+	// scripts. The descriptors let external watch-only software track these
+	// outputs on chain. They are read straight from the stored output
+	// scripts, so they are exact, but they describe outputs only: spending
+	// still needs Wavelength or the operator, because no external wallet can
+	// build the Ark leaf witness from a rawtr() descriptor.
+	ListArkOutputDescriptors(ctx context.Context, in *ListArkOutputDescriptorsRequest, opts ...grpc.CallOption) (*ListArkOutputDescriptorsResponse, error)
 	// GetBalance returns the current balance of the wallet, broken down
 	// by boarding (on-chain) and VTXO (off-chain) balances.
 	GetBalance(ctx context.Context, in *GetBalanceRequest, opts ...grpc.CallOption) (*GetBalanceResponse, error)
@@ -331,6 +341,16 @@ func (c *daemonServiceClient) ListWalletDescriptors(ctx context.Context, in *Lis
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(ListWalletDescriptorsResponse)
 	err := c.cc.Invoke(ctx, DaemonService_ListWalletDescriptors_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *daemonServiceClient) ListArkOutputDescriptors(ctx context.Context, in *ListArkOutputDescriptorsRequest, opts ...grpc.CallOption) (*ListArkOutputDescriptorsResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ListArkOutputDescriptorsResponse)
+	err := c.cc.Invoke(ctx, DaemonService_ListArkOutputDescriptors_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -810,6 +830,15 @@ type DaemonServiceServer interface {
 	// reveals key material on its own. Only available in lwwallet and
 	// btcwallet mode once the wallet is ready.
 	ListWalletDescriptors(context.Context, *ListWalletDescriptorsRequest) (*ListWalletDescriptorsResponse, error)
+	// ListArkOutputDescriptors returns one rawtr() output descriptor for
+	// every Ark output the wallet knows about: boarding outputs, live VTXOs
+	// (which reach the chain on a unilateral exit) and out-of-round receive
+	// scripts. The descriptors let external watch-only software track these
+	// outputs on chain. They are read straight from the stored output
+	// scripts, so they are exact, but they describe outputs only: spending
+	// still needs Wavelength or the operator, because no external wallet can
+	// build the Ark leaf witness from a rawtr() descriptor.
+	ListArkOutputDescriptors(context.Context, *ListArkOutputDescriptorsRequest) (*ListArkOutputDescriptorsResponse, error)
 	// GetBalance returns the current balance of the wallet, broken down
 	// by boarding (on-chain) and VTXO (off-chain) balances.
 	GetBalance(context.Context, *GetBalanceRequest) (*GetBalanceResponse, error)
@@ -1008,6 +1037,9 @@ func (UnimplementedDaemonServiceServer) UnlockWallet(context.Context, *UnlockWal
 }
 func (UnimplementedDaemonServiceServer) ListWalletDescriptors(context.Context, *ListWalletDescriptorsRequest) (*ListWalletDescriptorsResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ListWalletDescriptors not implemented")
+}
+func (UnimplementedDaemonServiceServer) ListArkOutputDescriptors(context.Context, *ListArkOutputDescriptorsRequest) (*ListArkOutputDescriptorsResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ListArkOutputDescriptors not implemented")
 }
 func (UnimplementedDaemonServiceServer) GetBalance(context.Context, *GetBalanceRequest) (*GetBalanceResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetBalance not implemented")
@@ -1245,6 +1277,24 @@ func _DaemonService_ListWalletDescriptors_Handler(srv interface{}, ctx context.C
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(DaemonServiceServer).ListWalletDescriptors(ctx, req.(*ListWalletDescriptorsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _DaemonService_ListArkOutputDescriptors_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListArkOutputDescriptorsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(DaemonServiceServer).ListArkOutputDescriptors(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: DaemonService_ListArkOutputDescriptors_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(DaemonServiceServer).ListArkOutputDescriptors(ctx, req.(*ListArkOutputDescriptorsRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -2042,6 +2092,10 @@ var DaemonService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "ListWalletDescriptors",
 			Handler:    _DaemonService_ListWalletDescriptors_Handler,
+		},
+		{
+			MethodName: "ListArkOutputDescriptors",
+			Handler:    _DaemonService_ListArkOutputDescriptors_Handler,
 		},
 		{
 			MethodName: "GetBalance",
