@@ -189,6 +189,14 @@ type WalletInitResult struct {
 	// IdentityPubKey is the daemon identity public key derived after the
 	// wallet was created or unlocked.
 	IdentityPubKey string
+
+	// RootFingerprint is the hex BIP32 fingerprint of the wallet's master
+	// key. Set when a wallet is created, empty on unlock.
+	RootFingerprint string
+
+	// Descriptors are the public output descriptors the wallet watches.
+	// Set when a wallet is created, empty on unlock.
+	Descriptors []string
 }
 
 // VTXOExpiryInfo is the SDK-owned typed view of a VTXO expiry
@@ -612,7 +620,38 @@ func (c *Client) InitWallet(ctx context.Context, mnemonic []string,
 	}
 
 	return &WalletInitResult{
-		IdentityPubKey: resp.IdentityPubkey,
+		IdentityPubKey:  resp.IdentityPubkey,
+		RootFingerprint: resp.GetRootFingerprint(),
+		Descriptors:     append([]string(nil), resp.GetDescriptors()...),
+	}, nil
+}
+
+// InitWalletFromDescriptors creates a new self-managed wallet from private
+// output descriptors that share one BIP32 master key. birthday bounds the
+// first rescan; the zero time scans from genesis.
+func (c *Client) InitWalletFromDescriptors(ctx context.Context,
+	descriptors []string, birthday time.Time, walletPassword []byte) (
+	*WalletInitResult, error) {
+
+	var birthdayUnix int64
+	if !birthday.IsZero() {
+		birthdayUnix = birthday.Unix()
+	}
+
+	resp, err := c.daemon.InitWallet(ctx, &waverpc.InitWalletRequest{
+		Descriptors:    append([]string(nil), descriptors...),
+		BirthdayUnix:   birthdayUnix,
+		WalletPassword: bytes.Clone(walletPassword),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("initialize wallet from descriptors: %w",
+			err)
+	}
+
+	return &WalletInitResult{
+		IdentityPubKey:  resp.IdentityPubkey,
+		RootFingerprint: resp.GetRootFingerprint(),
+		Descriptors:     append([]string(nil), resp.GetDescriptors()...),
 	}, nil
 }
 
