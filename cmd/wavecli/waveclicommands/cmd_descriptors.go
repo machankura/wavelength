@@ -3,6 +3,7 @@ package waveclicommands
 import (
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/lightninglabs/wavelength/waverpc"
 	"github.com/spf13/cobra"
@@ -26,7 +27,12 @@ func newDescriptorsCmd() *cobra.Command {
 			"against the open wallet and never reveals keys " +
 			"on its own. Use it to move a mnemonic wallet " +
 			"into descriptor-based software. Private " +
-			"descriptors are as sensitive as the seed.",
+			"descriptors are as sensitive as the seed.\n\n" +
+			"--ark prints one rawtr() descriptor per Ark output " +
+			"instead: boarding outputs, live VTXOs and " +
+			"out-of-round receive scripts, optionally filtered " +
+			"with --kind. External watch-only software can track " +
+			"them on chain; spending them still needs Wavelength.",
 		Args: cobra.NoArgs,
 		RunE: walletDescriptors,
 	}
@@ -40,8 +46,34 @@ func newDescriptorsCmd() *cobra.Command {
 		"path to file containing the optional aezeed passphrase")
 	cmd.Flags().String("descriptor-file", "",
 		"path to the wallet's private root descriptors")
+	cmd.Flags().Bool("ark", false,
+		"print rawtr() descriptors for the wallet's Ark outputs")
+	cmd.Flags().StringSlice("kind", nil,
+		"with --ark, only these kinds: boarding, vtxo, oor-receive")
 
 	return cmd
+}
+
+// arkOutputKinds maps --kind values to the RPC enum.
+var arkOutputKinds = map[string]waverpc.ArkOutputKind{
+	"boarding":    waverpc.ArkOutputKind_ARK_OUTPUT_KIND_BOARDING,
+	"vtxo":        waverpc.ArkOutputKind_ARK_OUTPUT_KIND_VTXO,
+	"oor-receive": waverpc.ArkOutputKind_ARK_OUTPUT_KIND_OOR_RECEIVE,
+}
+
+// parseArkOutputKinds converts --kind values, refusing unknown ones.
+func parseArkOutputKinds(values []string) ([]waverpc.ArkOutputKind, error) {
+	kinds := make([]waverpc.ArkOutputKind, 0, len(values))
+	for _, value := range values {
+		kind, ok := arkOutputKinds[strings.ToLower(value)]
+		if !ok {
+			return nil, fmt.Errorf("unknown --kind %q: use "+
+				"boarding, vtxo or oor-receive", value)
+		}
+		kinds = append(kinds, kind)
+	}
+
+	return kinds, nil
 }
 
 // validateDescriptorsFlags checks the flag combinations `descriptors`
@@ -52,7 +84,18 @@ func validateDescriptorsFlags(cmd *cobra.Command) error {
 	descriptorFile, _ := cmd.Flags().GetString("descriptor-file")
 	passphraseFile, _ := cmd.Flags().GetString("seed-passphrase-file")
 
+	ark, _ := cmd.Flags().GetBool("ark")
+	kinds, _ := cmd.Flags().GetStringSlice("kind")
+
 	switch {
+	case ark && (private || mnemonicFile != "" || descriptorFile != "" ||
+		passphraseFile != ""):
+		return fmt.Errorf("--ark prints public output descriptors " +
+			"and takes no --private or seed material")
+
+	case !ark && len(kinds) > 0:
+		return fmt.Errorf("--kind requires --ark")
+
 	case mnemonicFile != "" && descriptorFile != "":
 		return fmt.Errorf("--mnemonic-file and --descriptor-file are " +
 			"mutually exclusive")
@@ -77,6 +120,10 @@ func validateDescriptorsFlags(cmd *cobra.Command) error {
 func walletDescriptors(cmd *cobra.Command, _ []string) error {
 	if err := validateDescriptorsFlags(cmd); err != nil {
 		return err
+	}
+
+	if ark, _ := cmd.Flags().GetBool("ark"); ark {
+		return arkOutputDescriptors(cmd)
 	}
 
 	private, _ := cmd.Flags().GetBool("private")
@@ -130,6 +177,35 @@ func walletDescriptors(cmd *cobra.Command, _ []string) error {
 				"keys; anyone who sees it can spend this "+
 				"wallet's funds",
 		)
+	}
+
+	return printJSON(resp)
+}
+
+// arkOutputDescriptors implements `descriptors --ark`.
+func arkOutputDescriptors(cmd *cobra.Command) error {
+	values, _ := cmd.Flags().GetStringSlice("kind")
+	kinds, err := parseArkOutputKinds(values)
+	if err != nil {
+		return err
+	}
+
+	client, conn, err := getDaemonClient(cmd)
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+
+	ctx, cancel := rpcContext(cmd)
+	defer cancel()
+
+	resp, err := client.ListArkOutputDescriptors(
+		ctx, &waverpc.ListArkOutputDescriptorsRequest{
+			Kinds: kinds,
+		},
+	)
+	if err != nil {
+		return fmt.Errorf("list Ark output descriptors: %w", err)
 	}
 
 	return printJSON(resp)

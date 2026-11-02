@@ -277,6 +277,25 @@ func walletAdminMethodRegistry() []schemaMethod {
 						"wallet's private root " +
 						"descriptors",
 				},
+				{
+					Name: "ark",
+					Type: "bool",
+					Description: "print rawtr() " +
+						"descriptors for the " +
+						"wallet's Ark outputs",
+				},
+				{
+					Name:     "kind",
+					Type:     "enum",
+					FlagType: "stringSlice",
+					Description: "with --ark, only " +
+						"these kinds, repeatable",
+					Values: []string{
+						"boarding",
+						"vtxo",
+						"oor-receive",
+					},
+				},
 			},
 			RequestType:  "ListWalletDescriptorsRequest",
 			ResponseType: "ListWalletDescriptorsResponse",

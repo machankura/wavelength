@@ -249,7 +249,16 @@ wavecli descriptors
 # descriptor-based software. Requires the mnemonic (or root descriptors);
 # the daemon checks it against the open wallet first.
 wavecli descriptors --private --mnemonic-file wallet.mnemonic
+
+# One rawtr() descriptor per Ark output (boarding outputs, live VTXOs,
+# out-of-round receive scripts), for watch-only tracking on chain
+wavecli descriptors --ark --kind boarding
 ```
+
+Ark outputs are listed one by one rather than as a ranged descriptor: the
+Ark exit leaf has no miniscript form, and the operator key and exit delay
+in each output come from operator terms that change over time. Watch-only
+software can see these outputs, but spending them still needs Wavelength.
 
 ### Step 2: Unlock the Wallet (wavewalletrpc only)
 

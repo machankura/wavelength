@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/lightninglabs/wavelength/waverpc"
 	"github.com/stretchr/testify/require"
 )
 
@@ -159,6 +160,15 @@ func TestValidateDescriptorsFlags(t *testing.T) {
 			"private": "true", "descriptor-file": "d.txt",
 			"seed-passphrase-file": "p.txt",
 		}, "--seed-passphrase-file requires"},
+		{"ark outputs", map[string]string{
+			"ark": "true", "kind": "boarding,vtxo",
+		}, ""},
+		{"ark with private", map[string]string{
+			"ark": "true", "private": "true",
+		}, "--ark prints public"},
+		{"kind without ark", map[string]string{
+			"kind": "vtxo",
+		}, "--kind requires --ark"},
 	}
 
 	for _, tc := range tests {
@@ -179,4 +189,19 @@ func TestValidateDescriptorsFlags(t *testing.T) {
 			require.ErrorContains(t, err, tc.wantErr)
 		})
 	}
+}
+
+// TestParseArkOutputKinds checks --kind parsing.
+func TestParseArkOutputKinds(t *testing.T) {
+	t.Parallel()
+
+	kinds, err := parseArkOutputKinds([]string{"boarding", "OOR-receive"})
+	require.NoError(t, err)
+	require.Equal(t, []waverpc.ArkOutputKind{
+		waverpc.ArkOutputKind_ARK_OUTPUT_KIND_BOARDING,
+		waverpc.ArkOutputKind_ARK_OUTPUT_KIND_OOR_RECEIVE,
+	}, kinds)
+
+	_, err = parseArkOutputKinds([]string{"lightning"})
+	require.ErrorContains(t, err, "unknown --kind")
 }
