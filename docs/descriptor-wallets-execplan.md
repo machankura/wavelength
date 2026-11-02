@@ -102,13 +102,38 @@ VTXOs.
   `ListWalletDescriptors`, the wasm `startDescriptorWallet` and
   `listWalletDescriptors` verbs, and `sdk/ark.InitWalletFromDescriptors`.
   The tagged SDK, mobile and wasm builds pass.
-- [ ] Milestone 6: downstream packages (wavelength-sdk, wavelength-mobile,
-  wavelength-wdk).
-- [ ] Milestone 7: documentation, logging hygiene and release notes.
+- [x] (2026-11-02) Milestone 6: downstream packages, each on its own
+  `descriptors` branch. wavelength-sdk: types regenerated with tygo; core
+  `DescriptorWalletClient` (`startDescriptorWallet`,
+  `listWalletDescriptors`), descriptor `createWallet` and engine restores;
+  the web profile lock and secret-field redaction; React Native native
+  dispatch; docs and regenerated API data. All four package test suites
+  pass (core 217, web 175, react 34, react-native 39). wavelength-mobile:
+  Kotlin and Swift `createWallet(descriptors:birthday:)` and
+  `listWalletDescriptors`. The Kotlin kit was compiled and unit-tested
+  against an AAR built locally from this branch with `make mobile-android`;
+  Swift was not compiled (no Swift toolchain on the build host).
+  wavelength-wdk: Bare addon exports and stale-start retry for the new
+  verbs. Not done: the demo apps' descriptor restore screens; the WDK
+  manager-level descriptor mode, left for a product decision because
+  `WalletManagerWavelength` is defined by one BIP39 seed with many accounts
+  while a descriptor set is one fixed key; WDK tests, not run because the
+  workspace has no installed dependencies.
+- [x] (2026-11-02) Milestone 7: documentation and logging hygiene.
+  `docs/daemon_cli_guide.md` and `docs/seed_restore_recovery.md` cover
+  descriptor create, export and restore. Audit: no daemon interceptor logs
+  request bodies, `walletdesc` values redact through `String` and
+  `LogValue`, and web debug logs redact `descriptors`. Not done: the
+  proposed ast-grep rule (ast-grep is not installed on the build host, so a
+  rule could not be verified) and a release-notes entry (the repository has
+  no release-notes file; `docs/release.md` describes the process).
 - [ ] Extension W0: system test and docs for the existing watch-only lnd plus
   remote signer path.
-- [ ] Extension W1: remove the raw private key and concrete-btcwallet
-  signing assumptions.
+- [x] (2026-11-02) Extension W1: remove the raw private key and
+  concrete-btcwallet signing assumptions. PSBT funding and signing go
+  through the new `walletcore.Wallet.Controller`. Indexer proof signing
+  already used the key ring's tagged-message path; a test with a key ring
+  that refuses `DerivePrivKey` now pins it.
 - [ ] Extension W2: native watch-only self-managed backend with a remote
   signer.
 - [ ] Extension W3: account-level private keys with an in-process signer.
@@ -116,8 +141,20 @@ VTXOs.
   no lnd is needed anywhere.
 - [ ] Extension W5: per-family key overrides for fund slots, with a
   manifest, signer routing and per-slot unlock probes.
-- [ ] Extension W6: Ark output descriptor export (`rawtr()` per boarding,
-  VTXO-exit and receive output) for external watch-only tools.
+- [x] (2026-11-02) Extension W6: Ark output descriptor export
+  (`ListArkOutputDescriptors`, `wavecli descriptors --ark [--kind]`), one
+  `rawtr()` per boarding output, live VTXO and receive script. A
+  miniscript-mismatch test passes, and Bitcoin Core derives the same address
+  from a standard policy's export. Deviations: the response field is
+  `output_descriptor`, because `descriptor` collides with protobuf's
+  generated `Descriptor()` method; there is no cursor, so the list is bounded
+  by wallet size; VTXO entries report exit delay 0 (unknown) because the
+  delay sits in the policy template, which is not decoded here.
+- [ ] Not started: W0 (remote-signer system test), W2 (native watch-only
+  backend), W3 (account-level keys), W4 (Wavelength signer mode), W5
+  (per-family overrides). Each is a multi-day project needing new
+  infrastructure (a remote-signer harness topology, a new signer process,
+  encrypted key storage); they are next in that order.
 
 
 ## Surprises & Discoveries
@@ -1958,3 +1995,12 @@ API)", covering the signer key file, export command, manifest, auth keys,
 CLI creation, Go SDK and gRPC calls, and Core watching, and listed the
 proposed names in `Interfaces and Dependencies`. Renamed the extension
 heading to cover W0 to W6.
+
+Revision note (2026-11-02, implementation pass): implemented Milestones 0
+to 7 and extensions W1 and W6 on the `descriptors` branch of this
+repository and its three downstream repositories. Progress records each
+milestone's evidence, deviation and remaining gap. New findings are in
+Surprises & Discoveries (Neuter slice aliasing, SLIP-132 account keys, the
+account-key public rendering bug), and new decisions are in the Decision
+Log (Render instead of String(bool), fingerprint persistence, password-free
+private export, the `wavecli descriptors` command placement).
