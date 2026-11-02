@@ -2009,7 +2009,11 @@ func (s *Server) tryAutoUnlockLwwallet(ctx context.Context) error {
 		}
 
 		if err := s.startLwwallet(
-			ctx, seed, password, birthday,
+			ctx, walletCreateInput{
+				seed:     seed,
+				birthday: birthday,
+			},
+			password,
 		); err != nil {
 
 			s.log.ErrorS(
@@ -2065,11 +2069,9 @@ func (s *Server) tryAutoUnlockLwwallet(ctx context.Context) error {
 
 	s.log.InfoS(ctx, "Auto-unlocking lwwallet")
 
-	// The zero birthday is inert on this path: a nil seed opens the
-	// existing database, and btcwallet only reads the birthday on the
-	// create branch.
+	// The zero creation input opens the existing database.
 	if err := s.startLwwallet(
-		ctx, nil, password, time.Time{},
+		ctx, walletCreateInput{}, password,
 	); err != nil {
 
 		s.log.ErrorS(ctx, "Failed to start lwwallet", err)
@@ -2078,15 +2080,16 @@ func (s *Server) tryAutoUnlockLwwallet(ctx context.Context) error {
 	return nil
 }
 
-// startLwwallet creates and starts the lightweight wallet. A non-nil
-// seed creates a new wallet database encrypted under the given
-// password; a nil seed opens the existing database, with the password
-// checked against the private passphrase it was created with. On
-// success it populates s.lwWallet and marks the wallet as ready.
+// startLwwallet creates and starts the lightweight wallet. A creation
+// input with a seed or root key creates a new wallet database encrypted
+// under the given password; the zero input opens the existing database,
+// with the password checked against the private passphrase it was
+// created with. On success it populates s.lwWallet and marks the wallet
+// as ready.
 //
 //nolint:contextcheck // wallet backend owns lifecycle after daemon startup
-func (s *Server) startLwwallet(ctx context.Context, seed []byte,
-	walletPassword []byte, birthday time.Time) error {
+func (s *Server) startLwwallet(ctx context.Context, input walletCreateInput,
+	walletPassword []byte) error {
 
 	networkDir := s.cfg.NetworkDir()
 
@@ -2101,9 +2104,10 @@ func (s *Server) startLwwallet(ctx context.Context, seed []byte,
 	}
 
 	w, err := lwwallet.New(lwwallet.Config{
-		Seed:           seed,
+		Seed:           input.seed,
+		RootKey:        input.rootKey,
 		WalletPassword: walletPassword,
-		Birthday:       birthday,
+		Birthday:       input.birthday,
 		EsploraURL:     s.cfg.Wallet.EsploraURL,
 		ChainParams:    s.chainParams,
 		PollInterval:   pollInterval,
@@ -2234,7 +2238,11 @@ func (s *Server) tryAutoUnlockBtcwallet(ctx context.Context) error {
 		}
 
 		if err := s.startBtcwallet(
-			ctx, seed, password, birthday,
+			ctx, walletCreateInput{
+				seed:     seed,
+				birthday: birthday,
+			},
+			password,
 		); err != nil {
 
 			s.log.ErrorS(
@@ -2289,11 +2297,9 @@ func (s *Server) tryAutoUnlockBtcwallet(ctx context.Context) error {
 
 	s.log.InfoS(ctx, "Auto-unlocking btcwallet")
 
-	// The zero birthday is inert on this path: a nil seed opens the
-	// existing database, and btcwallet only reads the birthday on the
-	// create branch.
+	// The zero creation input opens the existing database.
 	if err := s.startBtcwallet(
-		ctx, nil, password, time.Time{},
+		ctx, walletCreateInput{}, password,
 	); err != nil {
 
 		s.log.ErrorS(ctx,
@@ -2353,8 +2359,8 @@ func (s *Server) preStartNeutrino(ctx context.Context) error {
 // and marks the wallet as ready.
 //
 //nolint:contextcheck // wallet backend owns lifecycle after daemon startup
-func (s *Server) startBtcwallet(ctx context.Context, seed []byte,
-	walletPassword []byte, birthday time.Time) error {
+func (s *Server) startBtcwallet(ctx context.Context, input walletCreateInput,
+	walletPassword []byte) error {
 
 	networkDir := s.cfg.NetworkDir()
 
@@ -2365,9 +2371,10 @@ func (s *Server) startBtcwallet(ctx context.Context, seed []byte,
 
 	cfg := btcwbackend.Config{
 		Config: walletcore.Config{
-			Seed:           seed,
+			Seed:           input.seed,
+			RootKey:        input.rootKey,
 			WalletPassword: walletPassword,
-			Birthday:       birthday,
+			Birthday:       input.birthday,
 			ChainParams:    s.chainParams,
 			RecoveryWindow: recoveryWindow,
 			DBDir:          networkDir,

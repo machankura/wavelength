@@ -197,6 +197,16 @@ func TestRootKeyWalletMatchesSeedWallet(t *testing.T) {
 				),
 			)
 
+			// The root-key variant must agree too, and must leave
+			// the caller's key usable for a second call.
+			for i := 0; i < 2; i++ {
+				fromRoot, err := waved.
+					WalletIdentityPubKeyFromRootKey(
+						rootKey, name,
+					)
+				require.NoError(t, err)
+				require.Equal(t, identity, fromRoot)
+			}
 		})
 	}
 }

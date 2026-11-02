@@ -71,15 +71,35 @@ func WalletIdentityPubKeyFromSeed(seed [rawSeedLen]byte,
 		return "", err
 	}
 
-	coinType := walletcore.CoinTypeForNet(chainParams)
-	key, err := hdkeychain.NewMaster(seed[:], chainParams)
+	root, err := hdkeychain.NewMaster(seed[:], chainParams)
 	if err != nil {
 		return "", fmt.Errorf("derive identity master key: %w", err)
 	}
-	defer func() {
-		key.Zero()
-	}()
+	defer root.Zero()
 
+	return WalletIdentityPubKeyFromRootKey(root, network)
+}
+
+// WalletIdentityPubKeyFromRootKey derives the self-managed wallet identity at
+// m/1017'/coinType'/6'/0/0 from a BIP32 master key, such as one taken from a
+// descriptor, without creating or opening a wallet database. Like
+// WalletIdentityPubKeyFromSeed it walks btcwallet's legacy-compatible
+// derivation so the result matches the wallet backends exactly. The root key
+// is not modified.
+func WalletIdentityPubKeyFromRootKey(root *hdkeychain.ExtendedKey,
+	network string) (string, error) {
+
+	chainParams, err := networkToChainParams(network)
+	if err != nil {
+		return "", err
+	}
+
+	if root.Depth() != 0 || !root.IsPrivate() {
+		return "", fmt.Errorf("identity derivation needs the master " +
+			"private key")
+	}
+
+	coinType := walletcore.CoinTypeForNet(chainParams)
 	path := []uint32{
 		keychain.BIP0043Purpose + hdkeychain.HardenedKeyStart,
 		coinType + hdkeychain.HardenedKeyStart,
@@ -88,6 +108,8 @@ func WalletIdentityPubKeyFromSeed(seed [rawSeedLen]byte,
 		0,
 		0,
 	}
+
+	key := root
 	for _, childIndex := range path {
 		child, err := key.DeriveNonStandard(
 			childIndex,
@@ -97,9 +119,14 @@ func WalletIdentityPubKeyFromSeed(seed [rawSeedLen]byte,
 				childIndex, err)
 		}
 
-		key.Zero()
+		// Never wipe the caller's root key, only the intermediate
+		// children this walk created.
+		if key != root {
+			key.Zero()
+		}
 		key = child
 	}
+	defer key.Zero()
 
 	pubKey, err := key.ECPubKey()
 	if err != nil {

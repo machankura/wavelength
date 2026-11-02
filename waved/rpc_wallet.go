@@ -11,6 +11,7 @@ import (
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/ecdsa"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
+	"github.com/btcsuite/btcd/btcutil/v2/hdkeychain"
 	"github.com/btcsuite/btcd/chainhash/v2"
 	"github.com/btcsuite/btcwallet/waddrmgr"
 	"github.com/lightninglabs/lndclient"
@@ -499,7 +500,11 @@ func (r *RPCServer) InitWallet(ctx context.Context,
 	// under the wallet password. The seed is persisted only inside
 	// btcwallet's own passphrase-encrypted key store.
 	if err := r.server.startSelfManagedWallet(
-		ctx, seed[:], req.WalletPassword, birthday,
+		ctx, walletCreateInput{
+			seed:     seed[:],
+			birthday: birthday,
+		},
+		req.WalletPassword,
 	); err != nil {
 
 		target := rollbackState()
@@ -595,11 +600,9 @@ func (r *RPCServer) UnlockWallet(ctx context.Context,
 	// Open the existing wallet database with the supplied password
 	// as btcwallet's private passphrase. A wrong password surfaces
 	// as an unlock failure from the wallet backend.
-	// The zero birthday is inert here: a nil seed opens the existing
-	// database, and btcwallet only reads the birthday on the create
-	// branch.
+	// The zero creation input opens the existing database.
 	if err := r.server.startSelfManagedWallet(
-		ctx, nil, req.WalletPassword, time.Time{},
+		ctx, walletCreateInput{}, req.WalletPassword,
 	); err != nil {
 
 		rollbackState()
@@ -728,19 +731,29 @@ func (s *Server) isSelfManagedWallet() bool {
 		s.cfg.Wallet.Type == WalletTypeBtcwallet
 }
 
+// walletCreateInput is the material used to create a new self-managed
+// wallet database: a raw seed or a BIP32 master key, plus the birthday
+// that bounds the first rescan. The zero value opens an existing
+// database instead. The caller owns the key material and wipes it.
+type walletCreateInput struct {
+	seed     []byte
+	rootKey  *hdkeychain.ExtendedKey
+	birthday time.Time
+}
+
 // startSelfManagedWallet starts the appropriate self-managed wallet
-// based on the configured wallet type. A non-nil seed creates a new
-// wallet database encrypted under the wallet password; a nil seed
-// opens the existing database with it.
-func (s *Server) startSelfManagedWallet(ctx context.Context, seed []byte,
-	walletPassword []byte, birthday time.Time) error {
+// based on the configured wallet type. A creation input with a seed or
+// root key creates a new wallet database encrypted under the wallet
+// password; the zero input opens the existing database with it.
+func (s *Server) startSelfManagedWallet(ctx context.Context,
+	input walletCreateInput, walletPassword []byte) error {
 
 	switch s.cfg.Wallet.Type {
 	case WalletTypeLwwallet:
-		return s.startLwwallet(ctx, seed, walletPassword, birthday)
+		return s.startLwwallet(ctx, input, walletPassword)
 
 	case WalletTypeBtcwallet:
-		return s.startBtcwallet(ctx, seed, walletPassword, birthday)
+		return s.startBtcwallet(ctx, input, walletPassword)
 
 	default:
 		return fmt.Errorf("unsupported wallet type %q",

@@ -129,7 +129,9 @@ For field-level detail, use `go doc github.com/lightninglabs/wavelength/waved.<S
   deferred `db.Close()` so in-flight actor DB transactions drain before the
   connection pool tears down.
 - Wallet transitions `None → Locked → Ready` (or direct to `Ready` if a seed
-  is provided). Three wallet backends: LND, lightweight (`lwwallet`), or
+  or root key is provided). Self-managed creation goes through
+  `walletCreateInput` (seed or BIP32 master key plus birthday); its zero
+  value opens the existing database. Three wallet backends: LND, lightweight (`lwwallet`), or
   neutrino-backed (`btcwallet` via `btcwbackend`).
 - `WaitForWalletServicesReady` resolves after wallet-dependent actors and
   mailbox ingress start, or with the first error before that boundary.
