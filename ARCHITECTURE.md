@@ -51,6 +51,7 @@ package may import from a higher layer.
 | [`btcwbackend`](btcwbackend/) | Neutrino-backed wallet backend (btcwallet + compact block filters) |
 | [`walletcore`](walletcore/) | Shared wallet abstractions and boarding logic used by lwwallet and btcwbackend |
 | [`proofkeys`](proofkeys/) | Interface for wallet-managed key derivation and indexer proof signing |
+| [`walletdesc`](walletdesc/) | Parses, checksums and validates the output descriptors a self-managed wallet can be created from, and renders them back |
 | [`fraud`](fraud/) | Fraud detection actor: watches OOR ancestor outpoints on-chain and triggers unilateral exit when an ancestor is spent |
 | [`vhtlcrecovery/coordinator`](vhtlcrecovery/coordinator/) | Runtime coordinator for durable vHTLC recovery jobs: arms, escalates into unroll, cancels, and reconciles after restart |
 | [`vhtlcrecovery/unrollpolicy`](vhtlcrecovery/unrollpolicy/) | Adapter that resolves `(exit_policy_kind, recovery_id)` into a concrete `unroll.ExitSpendPolicy` for vHTLC claim and refund exits |
