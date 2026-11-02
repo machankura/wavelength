@@ -3,6 +3,7 @@ package walletcore
 import (
 	"time"
 
+	"github.com/btcsuite/btcd/btcutil/v2/hdkeychain"
 	"github.com/btcsuite/btcd/chaincfg/v2"
 	"github.com/btcsuite/btclog/v2"
 	fn "github.com/lightningnetwork/lnd/fn/v2"
@@ -45,6 +46,14 @@ type Config struct {
 	// instead; the seed itself is never persisted by the wallet
 	// outside btcwallet's own encrypted key store.
 	Seed []byte
+
+	// RootKey is a BIP32 master private key used instead of Seed when
+	// creating a new wallet database, for wallets defined by output
+	// descriptors rather than a seed. A wallet built from the master key
+	// of a seed is identical to one built from the seed itself. At most
+	// one of Seed and RootKey may be set, and like Seed it must be unset
+	// when opening an existing database.
+	RootKey *hdkeychain.ExtendedKey
 
 	// WalletPassword is the private passphrase that encrypts the
 	// wallet database's key material (btcwallet's PrivatePass). It

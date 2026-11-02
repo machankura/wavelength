@@ -11,10 +11,18 @@ btcwallet.BtcWallet regardless of the underlying chain source.
 
 - `Wallet` — Core wallet struct embedding `input.Signer`. Provides key derivation, P2TR address generation, balance queries, and UTXO listing. Also implements `proofkeys.Backend` (via `ProofSigner` method). Chain-specific implementations embed this to satisfy `round.ClientWallet`.
 - `BoardingBackendBase` — Shared boarding functionality: taproot script import under BIP86 scope, imported address tracking for UTXO filtering, and HD key derivation. Chain-specific adapters embed this and add `ListUnspent`, `GetTransaction`, `GetBlock`.
-- `Config` — Base configuration (seed, wallet password, seed birthday, chain
-  params (mainnet/testnet/testnet4/regtest), recovery window, DB dir, logger)
-  shared by all btcwallet-backed wallet backends. `Birthday`, when set,
-  bounds recovery rescans instead of starting from genesis.
+- `Config` — Base configuration (seed or BIP32 master `RootKey`, wallet
+  password, birthday, chain params (mainnet/testnet/testnet4/regtest),
+  recovery window, DB dir, logger) shared by all btcwallet-backed wallet
+  backends. `Birthday`, when set, bounds recovery rescans instead of
+  starting from genesis.
+- `ValidateCreateInput` / `NewBtcWallet` — shared creation path. The first
+  checks that at most one of seed and root key is set and that a root key is
+  a private master key for the network; the second builds lnd's btcwallet
+  wrapper, creating the database from the root key through
+  `Loader.CreateNewWalletExtendedKey` and handing it over via
+  `btcwallet.Config.Wallet`. A wallet built from a seed's master key is
+  identical to one built from the seed (`rootkey_test.go`).
 - `OutputLeaser` — Interface for UTXO reservation during coin selection:
   `LeaseOutput(ctx, id, outpoint, expiry)` and
   `ReleaseOutput(ctx, id, outpoint)`. Implemented by `lwwallet.BoardingBackendAdapter`
@@ -49,9 +57,10 @@ btcwallet.BtcWallet regardless of the underlying chain source.
   script but the in-memory filter started empty.
 - The user-supplied `Config.WalletPassword` is btcwallet's `PrivatePass`; the
   static `PublicWalletPassphrase` constant covers only public (watch-only)
-  data. A nil `Config.Seed` opens an existing wallet database; a non-nil seed
-  creates a new one, and backends must refuse a seed when a database already
-  exists (btcwallet would silently ignore it).
+  data. With neither `Config.Seed` nor `Config.RootKey` set the backend opens
+  an existing wallet database; with exactly one set it creates a new one, and
+  backends must refuse either when a database already exists (btcwallet
+  would silently ignore it).
 
 ## Deep Docs
 
