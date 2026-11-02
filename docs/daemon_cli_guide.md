@@ -348,8 +348,9 @@ Accepted forms are `tr(KEY/86h/0h/0h/<0;1>/*)` and
 `tprv`), and `<0;1>` may be written as separate `/0/*` and `/1/*`
 descriptors. The coin type is `0h` on every network, because that is
 what the wallet watches; descriptors from test-network wallets that use
-`1h` are refused. Watch-only (`xpub`) and account-level descriptors are
-refused too, since Ark keys are derived from the master key. `--birthday`
+`1h` are refused. Watch-only (`xpub`) master-key descriptors are refused
+too; public keys belong in a watch-only bundle with a remote signer (see
+"lwwallet or btcwallet with a remote signer"). `--birthday`
 (RFC3339 or `YYYY-MM-DD`) bounds the first rescan; without it the wallet
 scans from genesis. Add `--recover` to rebuild Ark state as for a
 mnemonic restore. The file is as sensitive as a seed: `create` warns when
@@ -357,6 +358,38 @@ other users can read it.
 
 The response lists the public descriptors the wallet watches and the
 master key fingerprint.
+
+#### Create from account-level keys
+
+When other software holds the seed and exports account-level keys rather
+than the master key, the same `--descriptor-file` accepts those instead:
+
+```text
+tr([d34db33f/86h/0h/0h]tprv.../<0;1>/*)
+wpkh([d34db33f/84h/0h/0h]tprv.../<0;1>/*)
+[d34db33f/1017h/1h]tprv...
+```
+
+The `tr()` line is the BIP86 account key and is required; the `wpkh()`
+line is optional. An account key alone cannot produce the Ark keys, which
+live under lnd's key families at `m/1017'/coin'/family'`, so the families
+are supplied too: either one coin-level key `[fp/1017h/COINh]XPRV` as
+above, or one line `[fp/1017h/COINh/FAMILYh]XPRV/0/*` for every family 0
+to 255. `COIN` is `0` on mainnet and `1` elsewhere.
+
+The wallet keeps these keys encrypted under the wallet password in its own
+database and signs with them in the daemon's process; no remote signer is
+involved, and `unlock` or `--wallet.password_file` decrypt them on each
+start. The file is as sensitive as a seed.
+
+Compatibility: the wallet uses the keys exactly as given and derives below
+them with standard BIP32. The same seed restored as a mnemonic in
+Wavelength derives the same keys except in a rare case: when the key at
+`m/1017'` has a private key starting with a zero byte (about one seed in
+256), btcwallet's legacy derivation gives every family a different key. A
+coin-level key whose own private key starts with a zero byte changes only
+family 0, which Wavelength does not use. Keep restoring from the exported
+keys, not the mnemonic, in that case.
 
 #### Print the wallet's descriptors
 

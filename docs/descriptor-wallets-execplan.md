@@ -158,13 +158,31 @@ VTXOs.
   wavewalletrpc `Create` `watch_only_bundle`; `wavecli create
   --watch-only-bundle-file`; key origin source 2. Acceptance:
   `TestNativeRemoteSignerDaemon` passes the W0 scenario on lwwallet with a
-  full bundle from an lnd signer. Remaining, blocked on W3's encrypted
+  full bundle from an lnd signer. Remaining, now unblocked by W3's
   keystore: minimal bundles, local authentication keys (families 21 and
   43), placeholder accounts and the `splitKeyRing` guard, the recording-
   signer acceptance run, and the startup refusal for an uncovered `Funds`
   family. Also not done: inbound (signer-dials-daemon) connections, and
   the SDK and mobile bridges for bundles.
-- [ ] Extension W3: account-level private keys with an in-process signer.
+- [x] (2026-11-02) Extension W3: account-level private keys with an
+  in-process signer. `walletdesc.ParseAccountKeys` takes the on-chain
+  `tr()`/`wpkh()` account xprvs plus the families as one coin-level
+  `[fp/1017h/coinh]xprv` or one xprv per family, validated through the
+  watch-only bundle rules. `accountsigner.Signer` answers the ten requests
+  lnd's RPC key ring sends a remote signer (SignPsbt ported from lnd's
+  `BtcWallet.SignPsbt`, SignMessage, DeriveSharedKey, seven MuSig2 calls
+  via `input.MusigSessionManager`), so an account-key wallet is the W2
+  remote-signing wallet with an in-process connection. The keys are
+  encrypted with snacl under the wallet password in a
+  `wavelength-account-keys` bucket of the wallet database, and
+  `walletcore.OpenExisting` recognises the wallet by that bucket on
+  unlock. InitWallet's `descriptors`, `wavecli create --descriptor-file`
+  and `wavewalletdk.StartDescriptorWallet` accept the keys; key origin
+  source 3. Acceptance: `TestAccountKeysDaemon` runs the W0 scenario on
+  lwwallet with no lnd and no remote signer. Deviation from the plan: the
+  plan said account-level keys are immune to the legacy-derivation caveat;
+  that holds for per-family keys but not fully for a coin-level key (see
+  Surprises).
 - [ ] Extension W4: Wavelength signer mode and watch-only bundle export, so
   no lnd is needed anywhere.
 - [ ] Extension W5: per-family key overrides for fund slots, with a
@@ -178,10 +196,11 @@ VTXOs.
   generated `Descriptor()` method; there is no cursor, so the list is bounded
   by wallet size; VTXO entries report exit delay 0 (unknown) because the
   delay sits in the policy template, which is not decoded here.
-- [ ] Not started: W3 (account-level keys), W4 (Wavelength signer mode),
-  W5 (per-family overrides), and W2's minimal-bundle half. W3's keystore
-  unblocks minimal bundles; W4 and W5 follow. The native remote-signer
-  systest is the acceptance base for all three.
+- [ ] Not started: W4 (Wavelength signer mode), W5 (per-family overrides),
+  and W2's minimal-bundle half. W4 can serve `accountsigner.Signer` over
+  gRPC almost unchanged, since its methods already have the signrpc and
+  walletrpc server shapes. The native remote-signer and account-key
+  systests are the acceptance base.
 
 
 ## Surprises & Discoveries
@@ -420,6 +439,21 @@ VTXOs.
   probes the database first.
   Evidence: lnd `lnwallet/btcwallet.New`.
 
+- Observation: btcwallet's legacy hardened derivation reaches into a seed
+  wallet's key family accounts in three distinct ways, measured on real
+  wallets (walletcore `TestLegacyDerivationFamilyScope`): no leading zero
+  byte on `m/1017'` or `m/1017'/coin'` leaves every family equal to
+  standard BIP32; a leading zero on the coin-level key changes family 0
+  only, because btcwallet derives account 0 from its unpadded in-memory key
+  while creating the scope and every later account from the stored, padded
+  key; a leading zero on `m/1017'` changes every family. Also, a key parsed
+  from text is always padded, so comparing standard and legacy derivation
+  on a parsed key never differs; the first attempt at a coin-level check
+  did exactly that and passed every key. Consequence: coin-level imports
+  are accepted (family 0 is unused), and the `m/1017'` case is documented
+  as undetectable from the coin-level key.
+  Evidence: `walletcore/legacy_family_test.go`, `walletdesc/accountkeys.go`.
+
 ## Decision Log
 
 - Decision: In this plan a "descriptor wallet" is a wallet whose private
@@ -597,6 +631,25 @@ VTXOs.
   authorization than the password, and the daemon verifies it against the
   open wallet's account keys and identity before rendering anything. The RPC
   sits under the same `info:write` macaroon permission as `InitWallet`.
+  Date/Author: 2026-11-02, implementer.
+
+- Decision: W3's signer implements lnd's `RemoteSignerConnection` and sits
+  behind the same `rpcwallet.RPCKeyRing` as W2, rather than implementing
+  `input.Signer` and a PSBT-finalizing controller directly.
+  Rationale: the RPC key ring already turns every signing call, tweak and
+  PSBT finalization into ten requests and verifies each returned
+  signature, and W2's systest proves that path under Ark traffic. Only
+  PSBT signing had to be ported. lnd's own signrpc server could not be
+  reused in process: it is behind the `signrpc` build tag.
+  Date/Author: 2026-11-02, implementer.
+
+- Decision: account-key wallets keep the static public passphrase and put
+  the password on the keystore, unlike W2's remote-signing wallets.
+  Rationale: the backend can then open any database with the static
+  passphrase and tell a key-holding, account-key or remote-signing wallet
+  apart afterwards (keystore bucket present, or not), so unlocking an
+  account-key wallet needs no config. Their public data has the same
+  protection as a seed wallet's.
   Date/Author: 2026-11-02, implementer.
 
 - Decision: watch-only mode is selected by `wallet.remotesigner.enable`,

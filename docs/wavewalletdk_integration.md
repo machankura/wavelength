@@ -142,6 +142,16 @@ directly. `Client.ListWalletDescriptors` returns the public descriptors, or
 the private ones when the request resupplies the wallet's mnemonic or root
 descriptors; this is how a mnemonic wallet is moved into descriptor software.
 
+`Descriptors` may instead hold account-level private keys exported without
+the master key: the `tr([fp/86h/0h/0h]XPRV/<0;1>/*)` account key, optionally
+the `wpkh()` one, and the key families as `[fp/1017h/COINh]XPRV` or one
+`[fp/1017h/COINh/FAMILYh]XPRV/0/*` per family 0 to 255 (see
+`walletdesc.ParseAccountKeys` and the daemon guide). The wallet keeps them
+encrypted in its database and signs in process. The identity comes from the
+identity family's key, and the database password is derived with HKDF from
+that family's account private key under a separate info string, so a master
+key and its account keys open different databases.
+
 ### Externally derived wallet entropy
 
 `StartExternalSeedWallet` imports or unlocks a self-managed wallet from exactly
