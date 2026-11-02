@@ -214,6 +214,43 @@ wavecli create
 **Important:** The mnemonic is displayed on stderr during creation.
 Write it down and store it securely -- it is your only backup.
 
+#### Create from output descriptors
+
+Instead of a mnemonic, a wallet can be built from private output
+descriptors that share one BIP32 master key, one per line in a file
+(blank lines and lines starting with `#` are ignored):
+
+```bash
+wavecli create --descriptor-file wallet.descriptors --birthday 2026-01-01
+```
+
+Accepted forms are `tr(KEY/86h/0h/0h/<0;1>/*)` and
+`wpkh(KEY/84h/0h/0h/<0;1>/*)`, where `KEY` is the master `xprv` (or
+`tprv`), and `<0;1>` may be written as separate `/0/*` and `/1/*`
+descriptors. The coin type is `0h` on every network, because that is
+what the wallet watches; descriptors from test-network wallets that use
+`1h` are refused. Watch-only (`xpub`) and account-level descriptors are
+refused too, since Ark keys are derived from the master key. `--birthday`
+(RFC3339 or `YYYY-MM-DD`) bounds the first rescan; without it the wallet
+scans from genesis. Add `--recover` to rebuild Ark state as for a
+mnemonic restore. The file is as sensitive as a seed: `create` warns when
+other users can read it.
+
+The response lists the public descriptors the wallet watches and the
+master key fingerprint.
+
+#### Print the wallet's descriptors
+
+```bash
+# Public account descriptors, safe for watch-only software
+wavecli descriptors
+
+# Private descriptors, for example to move a mnemonic wallet into
+# descriptor-based software. Requires the mnemonic (or root descriptors);
+# the daemon checks it against the open wallet first.
+wavecli descriptors --private --mnemonic-file wallet.mnemonic
+```
+
 ### Step 2: Unlock the Wallet (wavewalletrpc only)
 
 Each time the daemon restarts, the wallet must be unlocked:

@@ -151,6 +151,40 @@ that tag, the CLI can connect to the daemon but the wallet service returns:
 daemon was not built with -tags wavewalletrpc
 ```
 
+## Restore From Descriptors
+
+A wallet can also be restored from private output descriptors that share
+one BIP32 master key, for example ones printed by
+`wavecli descriptors --private` on the original wallet or exported from
+another descriptor wallet:
+
+```sh
+wavecli create --recover \
+  --descriptor-file wallet.descriptors \
+  --birthday 2026-01-01 \
+  --recovery-window 100
+```
+
+A wallet built from a master key is identical to one built from the seed
+that key came from: same identity key, same Ark key families, same
+addresses. The same rules apply as for a mnemonic restore: stop the
+original daemon first, because the master key determines the wallet
+identity and mailbox, and use a fresh data directory.
+
+Descriptors carry no birthday. Without `--birthday` the restore scans from
+genesis, which is slow but never misses funds; a birthday later than the
+wallet's first use hides earlier funds, so err early.
+
+Two edge cases are refused rather than imported. A descriptor whose
+hardened path derives a different key under standard BIP32 than under the
+legacy derivation the wallet backend uses (about one key in 256) would
+make the wallet watch other addresses than the descriptor describes.
+`wavecli descriptors --private` renders such a script type as an
+account-level descriptor instead, which other wallets import correctly
+(Wavelength itself does not import account-level descriptors yet).
+Test-network descriptors that use coin type `1h` are refused because the
+wallet uses `0h` on every network.
+
 ## Troubleshooting
 
 `--recover requires --mnemonic-file` means the CLI rejected a restore command
