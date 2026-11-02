@@ -63,8 +63,13 @@ VTXOs.
   (about 9 million executions) found nothing. `make ast-lint` could not run
   locally because the `sg` binary on this host is the shadow-utils group
   tool, not ast-grep; CI runs it.
-- [ ] Milestone 2: wallet backends accept a root extended key instead of a
-  seed.
+- [x] (2026-11-02) Milestone 2: wallet backends accept a root extended key
+  instead of a seed. `walletcore.ValidateCreateInput` and
+  `walletcore.NewBtcWallet` are shared by both backends; `waved` carries a
+  `walletCreateInput`. `TestWalletCreateFromRootKey` (lwwallet) shows a
+  root-key wallet yields the same identity and first taproot address as the
+  seed wallet and obeys the create/open invariants. `js/wasm` builds of
+  `lwwallet` and `walletcore` compile.
 - [ ] Milestone 3: daemon RPC, CLI and swap-wallet admin surface for
   descriptor import.
 - [ ] Milestone 4: descriptor export (`ListWalletDescriptors`,
