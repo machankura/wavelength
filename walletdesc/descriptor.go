@@ -80,11 +80,14 @@ type Descriptor struct {
 
 // NewAccountDescriptor builds a public descriptor from an account-level key
 // at purpose'/0'/0', for example one read back from btcwallet. A private
-// accountKey is neutered. When hasFingerprint is false the descriptor is
-// rendered without a key origin, which BIP380 allows.
+// accountKey is neutered, and its version bytes are normalized to the
+// network's standard xpub or tpub: btcwallet stores BIP84 account keys with
+// SLIP-132 versions (zpub, vpub), which descriptors do not accept. When
+// hasFingerprint is false the descriptor is rendered without a key origin,
+// which BIP380 allows.
 func NewAccountDescriptor(scriptType ScriptType,
 	accountKey *hdkeychain.ExtendedKey, fingerprint uint32,
-	hasFingerprint bool) (*Descriptor, error) {
+	hasFingerprint bool, params *chaincfg.Params) (*Descriptor, error) {
 
 	if scriptType.Purpose() == 0 {
 		return nil, fmt.Errorf("unknown script type %d", scriptType)
@@ -96,7 +99,7 @@ func NewAccountDescriptor(scriptType ScriptType,
 	}
 
 	// Keep an independent copy so the caller may wipe accountKey.
-	pub, err := independentPublic(accountKey)
+	pub, err := StandardAccountPublicKey(accountKey, params)
 	if err != nil {
 		return nil, err
 	}
@@ -111,6 +114,21 @@ func NewAccountDescriptor(scriptType ScriptType,
 			1,
 		},
 	}, nil
+}
+
+// StandardAccountPublicKey returns accountKey neutered, with the network's
+// standard public version bytes (xpub on mainnet, tpub on test networks),
+// as an independent value. Two keys are the same account exactly when their
+// standard forms serialize identically.
+func StandardAccountPublicKey(accountKey *hdkeychain.ExtendedKey,
+	params *chaincfg.Params) (*hdkeychain.ExtendedKey, error) {
+
+	pub, err := independentPublic(accountKey)
+	if err != nil {
+		return nil, err
+	}
+
+	return pub.CloneWithVersion(params.HDPublicKeyID[:])
 }
 
 // CanonicalPublic returns the account-level public descriptors a wallet
@@ -226,6 +244,20 @@ func (d *Descriptor) Fingerprint() (uint32, bool) {
 // Branches returns the branch indexes the descriptor covers.
 func (d *Descriptor) Branches() []uint32 {
 	return slices.Clone(d.branches)
+}
+
+// AccountPublicKey returns the descriptor's account-level public key as an
+// independent value: derived from the master key for a master-key
+// descriptor, or neutered from the account key otherwise.
+func (d *Descriptor) AccountPublicKey() (*hdkeychain.ExtendedKey, error) {
+	if d.keyIsRoot {
+		return accountPublicKey(
+			d.key, d.scriptType.Purpose(), walletCoinType,
+			walletAccount,
+		)
+	}
+
+	return independentPublic(d.key)
 }
 
 // HasPrivateKey reports whether Render can produce a private descriptor.

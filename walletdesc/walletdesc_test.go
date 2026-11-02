@@ -513,13 +513,17 @@ func TestRenderPublic(t *testing.T) {
 
 	// A descriptor rebuilt from the account key alone renders the same,
 	// and without a known fingerprint it drops the origin.
-	fromAcct, err := NewAccountDescriptor(ScriptTaproot, acct, fp, true)
+	fromAcct, err := NewAccountDescriptor(
+		ScriptTaproot, acct, fp, true, params,
+	)
 	require.NoError(t, err)
 	got, err = fromAcct.Render(false)
 	require.NoError(t, err)
 	require.Equal(t, want, got)
 
-	noOrigin, err := NewAccountDescriptor(ScriptTaproot, acct, 0, false)
+	noOrigin, err := NewAccountDescriptor(
+		ScriptTaproot, acct, 0, false, params,
+	)
 	require.NoError(t, err)
 	got, err = noOrigin.Render(false)
 	require.NoError(t, err)
@@ -677,7 +681,9 @@ func TestPublicKeyIndependent(t *testing.T) {
 	acctPriv := accountKey(t, root, accountPath(86, 0, 0)...)
 	fp, err := Fingerprint(root)
 	require.NoError(t, err)
-	fromAcct, err := NewAccountDescriptor(ScriptTaproot, acctPriv, fp, true)
+	fromAcct, err := NewAccountDescriptor(
+		ScriptTaproot, acctPriv, fp, true, params,
+	)
 	require.NoError(t, err)
 	acctPriv.Zero()
 
@@ -764,4 +770,41 @@ func TestCanonicalPrivate(t *testing.T) {
 	}
 
 	t.Fatal("no affected master key found in the search range")
+}
+
+// TestStandardAccountPublicKey checks a SLIP-132 account key, as btcwallet
+// stores for BIP84, is normalized to the standard version and renders a
+// descriptor equal to the one built from the master key.
+func TestStandardAccountPublicKey(t *testing.T) {
+	t.Parallel()
+
+	params := &chaincfg.RegressionNetParams
+	root := testRoot(t, compatibleSeed(t, params), params)
+	fp, err := Fingerprint(root)
+	require.NoError(t, err)
+
+	acct, err := accountPublicKey(root, 84, 0, 0)
+	require.NoError(t, err)
+
+	// vpub, the SLIP-132 testnet BIP84 public version btcwallet uses.
+	vpub, err := acct.CloneWithVersion([]byte{0x04, 0x5f, 0x1c, 0xf6})
+	require.NoError(t, err)
+	require.True(t, strings.HasPrefix(vpub.String(), "vpub"))
+
+	std, err := StandardAccountPublicKey(vpub, params)
+	require.NoError(t, err)
+	require.Equal(t, acct.String(), std.String())
+
+	fromVpub, err := NewAccountDescriptor(
+		ScriptWitnessPubKeyHash, vpub, fp, true, params,
+	)
+	require.NoError(t, err)
+	got, err := fromVpub.Render(false)
+	require.NoError(t, err)
+
+	canonical, err := CanonicalPublic(root, params)
+	require.NoError(t, err)
+	want, err := canonical[1].Render(false)
+	require.NoError(t, err)
+	require.Equal(t, want, got)
 }
