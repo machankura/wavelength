@@ -146,8 +146,24 @@ VTXOs.
   through the new `walletcore.Wallet.Controller`. Indexer proof signing
   already used the key ring's tagged-message path; a test with a key ring
   that refuses `DerivePrivKey` now pins it.
-- [ ] Extension W2: native watch-only self-managed backend with a remote
-  signer.
+- [x] (2026-11-02) Extension W2, full bundles: `wallet.type=lwwallet` or
+  `btcwallet` runs watch-only with `wallet.remotesigner.*`, no lnd behind
+  the daemon. Done: `lib/keyfamily` registry with a pin test and a
+  repository-walking test that refuses numeric families declared elsewhere
+  (in place of the ast-grep rule, which cannot be verified on the build
+  host); `walletdesc.ParseWatchOnlyBundle` (lnd account JSON or one entry
+  per line, families 0 to 255 contiguous); `walletcore` watch-only
+  creation and open, lnd's RPC key ring as Signer, KeyRing and Controller,
+  and the start-up signer challenge; both backends; `InitWallet` /
+  wavewalletrpc `Create` `watch_only_bundle`; `wavecli create
+  --watch-only-bundle-file`; key origin source 2. Acceptance:
+  `TestNativeRemoteSignerDaemon` passes the W0 scenario on lwwallet with a
+  full bundle from an lnd signer. Remaining, blocked on W3's encrypted
+  keystore: minimal bundles, local authentication keys (families 21 and
+  43), placeholder accounts and the `splitKeyRing` guard, the recording-
+  signer acceptance run, and the startup refusal for an uncovered `Funds`
+  family. Also not done: inbound (signer-dials-daemon) connections, and
+  the SDK and mobile bridges for bundles.
 - [ ] Extension W3: account-level private keys with an in-process signer.
 - [ ] Extension W4: Wavelength signer mode and watch-only bundle export, so
   no lnd is needed anywhere.
@@ -162,11 +178,10 @@ VTXOs.
   generated `Descriptor()` method; there is no cursor, so the list is bounded
   by wallet size; VTXO entries report exit delay 0 (unknown) because the
   delay sits in the policy template, which is not decoded here.
-- [ ] Not started: W2 (native watch-only backend), W3 (account-level keys),
-  W4 (Wavelength signer mode), W5 (per-family overrides). Each is a
-  multi-day project needing new infrastructure (a new signer process,
-  encrypted key storage); they are next in that order. W0's remote-signer
-  harness topology and test are the acceptance base for W2 and W5.
+- [ ] Not started: W3 (account-level keys), W4 (Wavelength signer mode),
+  W5 (per-family overrides), and W2's minimal-bundle half. W3's keystore
+  unblocks minimal bundles; W4 and W5 follow. The native remote-signer
+  systest is the acceptance base for all three.
 
 
 ## Surprises & Discoveries
@@ -387,6 +402,24 @@ VTXOs.
   Evidence: `TestRemoteSignerDaemon` log, 20 samples per operation.
 
 
+- Observation: btcwallet numbers an imported watch-only account one past the
+  last account of its scope and ignores the key's own child index, and an
+  empty scope starts at 0. A bundle with a gap, or imported out of order,
+  would therefore put every later family's key under the wrong number and
+  lock funds to keys the signer would derive differently. lnd's own
+  `importWatchOnlyAccounts` sorts with a comparator that is not a strict
+  order (`Purpose < || Index <`), which happens to work only because lnd
+  always imports complete sets. Wavelength requires families 0 to 255
+  contiguous, sorts by (purpose, account), and checks each import's
+  `AccountNumber`.
+  Evidence: `waddrmgr.ScopedKeyManager.NewAccountWatchingOnly`,
+  `walletcore/watchonly.go`.
+
+- Observation: `btcwallet.New` with no bundle and no database silently
+  creates a key-holding wallet from a random seed. The watch-only open path
+  probes the database first.
+  Evidence: lnd `lnwallet/btcwallet.New`.
+
 ## Decision Log
 
 - Decision: In this plan a "descriptor wallet" is a wallet whose private
@@ -564,6 +597,28 @@ VTXOs.
   authorization than the password, and the daemon verifies it against the
   open wallet's account keys and identity before rendering anything. The RPC
   sits under the same `info:write` macaroon permission as `InitWallet`.
+  Date/Author: 2026-11-02, implementer.
+
+- Decision: watch-only mode is selected by `wallet.remotesigner.enable`,
+  not by a stored marker, and the wallet key origin records source 2 as a
+  cross-check. btcwallet's own `WatchOnly()` flag is the authority: a
+  database that holds private keys is refused in remote-signing mode, and
+  lnd refuses the reverse.
+  Rationale: the daemon needs the mode before it can open the database (the
+  password is the public passphrase only for watch-only wallets), so a
+  marker inside that database cannot select it.
+  Date/Author: 2026-11-02, implementer.
+
+- Decision: migration 000028 was widened in place to admit source 2 rather
+  than rebuilt by a new migration.
+  Rationale: it has not shipped; SQLite cannot alter a CHECK constraint, so
+  a new migration would have to rebuild the table for no compatibility gain.
+  Date/Author: 2026-11-02, implementer.
+
+- Decision: the remote signer request timeout defaults to 10 s.
+  Rationale: W0 measured 1 to 4 ms per signature on one host; 10 s leaves
+  room for a signer across a network while staying far inside a round's
+  signing budget.
   Date/Author: 2026-11-02, implementer.
 
 - Decision: W0 runs against the systest fake operator and stops each flow at

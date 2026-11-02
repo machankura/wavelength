@@ -97,6 +97,69 @@ waved \
   --rpc.listenaddr=localhost:10029
 ```
 
+#### lwwallet or btcwallet with a remote signer
+
+A self-managed wallet can keep every private key on a remote signer, with
+no lnd node behind the daemon. The daemon's wallet database then holds only
+account public keys, and every signature (on-chain, boarding, VTXO, MuSig2
+round signing, identity and join authorization) is requested from the
+signer. The signer can be any lnd node; lnd's signer RPCs are the protocol.
+
+```bash
+waved \
+  --network=regtest \
+  --wallet.type=lwwallet \
+  --wallet.esploraurl=http://localhost:3000 \
+  --wallet.remotesigner.enable \
+  --wallet.remotesigner.rpchost=signer.example:10009 \
+  --wallet.remotesigner.tlscertpath=/path/to/signer/tls.cert \
+  --wallet.remotesigner.macaroonpath=/path/to/signer/admin.macaroon \
+  --server.host=localhost:10010 \
+  --server.insecure \
+  --rpc.listenaddr=localhost:10029
+```
+
+Create the wallet from the signer's account public keys, the "watch-only
+bundle":
+
+```bash
+lncli --rpcserver=signer.example:10009 wallet accounts list > signer.json
+wavecli create --watch-only-bundle-file signer.json --birthday 2026-01-01
+```
+
+The bundle can also be written as one entry per line:
+`tr([fingerprint/86h/0h/0h]XPUB/<0;1>/*)` for the on-chain account, and
+`[fingerprint/1017h/COINh/FAMILYh]XPUB/0/*` for each lnd key family, where
+`COIN` is 0 on mainnet and 1 elsewhere. Lines may carry a BIP380 checksum,
+and lines starting with `//` are comments. Either form must cover BIP86
+account 0 and every key family from 0 to 255: the wallet provisions all of
+them and cannot create a missing one without the master key. The bundle
+holds no secret, but it reveals every address the wallet will use.
+
+How it behaves:
+
+- With `wallet.remotesigner.enable`, `create` accepts only a bundle; a
+  mnemonic or private descriptors are refused, because their keys belong on
+  the signer. A bundle without a configured signer is refused too.
+- The wallet password encrypts the bundle's public keys at rest, and
+  `unlock` and `--wallet.password_file` work as for any self-managed wallet.
+- Every start has the signer sign a fresh challenge with the identity key
+  and checks it against the identity the bundle implies. A daemon pointed at
+  the wrong signer refuses to start instead of failing at its first spend.
+- `--wallet.remotesigner.timeout` bounds connecting (30 s by default) and
+  `--wallet.remotesigner.requesttimeout` each request (10 s by default).
+  Signing a round takes milliseconds per signature on a nearby signer.
+- The signer must be reachable for anything that signs, including Ark state
+  recovery, since indexer queries carry proof signatures.
+- Remote signing needs a native build: the browser cannot open the gRPC
+  connection, so the wasm runtime refuses it.
+
+What this protects: someone who copies the data directory and the wallet
+password gets the public keys and can see the wallet's balances, but holds
+no key that can spend. It does not protect against an attacker who
+controls the running daemon, who can ask the signer to sign a theft; an
+lnd signer signs any valid request.
+
 ### lnd Mode
 
 Uses an existing lnd node for signing and key derivation. Point the
@@ -181,6 +244,12 @@ completed round.
 | `--wallet.pollinterval` | `30s` | Esplora poll interval (lwwallet only) |
 | `--wallet.recoverywindow` | `100` | Address look-ahead window (lwwallet only) |
 | `--wallet.password_file` | | Auto-unlock password file path (lwwallet/btcwallet) |
+| `--wallet.remotesigner.enable` | `false` | Keep every private key on a remote signer (lwwallet/btcwallet); the wallet is created from a watch-only bundle |
+| `--wallet.remotesigner.rpchost` | | Remote signer gRPC host:port |
+| `--wallet.remotesigner.tlscertpath` | | Remote signer TLS certificate |
+| `--wallet.remotesigner.macaroonpath` | | Macaroon the remote signer accepts for signing |
+| `--wallet.remotesigner.timeout` | `30s` | Timeout for connecting to the remote signer |
+| `--wallet.remotesigner.requesttimeout` | `10s` | Timeout for each remote signing request |
 | `--lnd.host` | `localhost:10009` | lnd gRPC address |
 | `--lnd.tlspath` | | Path to lnd TLS certificate |
 | `--lnd.macaroonpath` | | Path to lnd admin macaroon |

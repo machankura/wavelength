@@ -134,6 +134,15 @@ For field-level detail, use `go doc github.com/lightninglabs/wavelength/waved.<S
   value opens the existing database. Three wallet backends: LND,
   lightweight (`lwwallet`), or neutrino-backed (`btcwallet` via
   `btcwbackend`).
+- `wallet.remotesigner.enable` runs an lwwallet or btcwallet backend
+  watch-only, every signature going to the remote signer.
+  `validateInitWalletSource` then requires `watch_only_bundle` and refuses a
+  mnemonic or descriptors (their keys belong on the signer), and refuses a
+  bundle when no signer is configured. A seed in the environment is wiped
+  and ignored in this mode (`dropEnvSeedForRemoteSigner`). The mode comes
+  from config because the password is btcwallet's public passphrase only
+  for watch-only wallets, so it must be known before the database opens;
+  `wallet_key_origin.source = 2` records it as a cross-check.
 - `WaitForWalletServicesReady` resolves after wallet-dependent actors and
   mailbox ingress start, or with the first error before that boundary.
   `DaemonReady` remains the later full-startup signal.
