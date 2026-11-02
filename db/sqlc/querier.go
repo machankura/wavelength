@@ -167,6 +167,8 @@ type Querier interface {
 	// GetVTXOReplacement retrieves the replacement VTXO outpoint for a forfeited
 	// VTXO. Returns NULL if not forfeited or no replacement recorded.
 	GetVTXOReplacement(ctx context.Context, arg GetVTXOReplacementParams) (GetVTXOReplacementRow, error)
+	// Wallet key origin queries.
+	GetWalletKeyOrigin(ctx context.Context) (WalletKeyOrigin, error)
 	// GetWalletUTXOLogCreatedByOutpoint returns the 'created' audit row at an
 	// outpoint, if any. idx_utxo_log_outpoint_event makes it at most one row.
 	// The ledger actor uses it to recognise a boarding deposit's funding input as
@@ -633,6 +635,7 @@ type Querier interface {
 	UpsertSpendingReservation(ctx context.Context, arg UpsertSpendingReservationParams) error
 	// Unilateral-exit job control-plane queries.
 	UpsertUnilateralExitJob(ctx context.Context, arg UpsertUnilateralExitJobParams) error
+	UpsertWalletKeyOrigin(ctx context.Context, arg UpsertWalletKeyOriginParams) error
 }
 
 var _ Querier = (*Queries)(nil)

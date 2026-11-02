@@ -535,6 +535,13 @@ type VtxoAncestryPath struct {
 	CommitmentHeight  int32
 }
 
+type WalletKeyOrigin struct {
+	ID              int64
+	RootFingerprint int64
+	Source          int32
+	CreatedAt       int64
+}
+
 type WalletUtxoLog struct {
 	EntryID       int64
 	OutpointHash  []byte
