@@ -95,9 +95,11 @@ func checkWalletInvariants(cfg Config) error {
 		return fmt.Errorf("wallet password is required")
 	}
 
-	if cfg.Seed != nil && len(cfg.Seed) != walletcore.SeedLen {
-		return fmt.Errorf("seed must be %d bytes, got %d",
-			walletcore.SeedLen, len(cfg.Seed))
+	create, err := walletcore.ValidateCreateInput(
+		cfg.Seed, cfg.RootKey, cfg.ChainParams,
+	)
+	if err != nil {
+		return err
 	}
 
 	exists, err := walletExists(cfg)
@@ -106,13 +108,13 @@ func checkWalletInvariants(cfg Config) error {
 	}
 
 	switch {
-	case cfg.Seed == nil && !exists:
-		return fmt.Errorf("%w in %q: create the wallet with a "+
-			"seed first", ErrWalletNotFound, cfg.DBDir)
+	case !create && !exists:
+		return fmt.Errorf("%w in %q: create the wallet with a seed or "+
+			"root key first", ErrWalletNotFound, cfg.DBDir)
 
-	case cfg.Seed != nil && exists:
-		return fmt.Errorf("%w in %q: open it without a seed instead",
-			ErrWalletExists, cfg.DBDir)
+	case create && exists:
+		return fmt.Errorf("%w in %q: open it without a seed or root "+
+			"key instead", ErrWalletExists, cfg.DBDir)
 	}
 
 	return nil
@@ -172,7 +174,7 @@ func New(cfg Config) (*Wallet, error) {
 		return nil, fmt.Errorf("create wallet loader options: %w", err)
 	}
 
-	btcw, err := btcwallet.New(btcwallet.Config{
+	btcw, err := walletcore.NewBtcWallet(btcwallet.Config{
 		PrivatePass:    cfg.WalletPassword,
 		PublicPass:     walletcore.PublicWalletPassphrase,
 		HdSeed:         cfg.Seed,
@@ -182,7 +184,7 @@ func New(cfg Config) (*Wallet, error) {
 		CoinType:       coinType,
 		RecoveryWindow: cfg.RecoveryWindow,
 		LoaderOptions:  loaderOptions,
-	}, blockCache)
+	}, cfg.RootKey, blockCache)
 	if err != nil {
 		// On failure the wallet never adopted the loader's
 		// database handle, so release it here (a no-op natively,

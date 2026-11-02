@@ -88,6 +88,9 @@ base logic with the neutrino-backed `btcwbackend` sibling via the extracted
 
 ## Invariants
 
+- `Config` takes either a seed or a BIP32 master `RootKey` to create a new
+  database, never both, and neither when opening; both go through
+  `walletcore.ValidateCreateInput` and `walletcore.NewBtcWallet`.
 - Exactly one `TipPoller` goroutine drives both `EsploraChainService` and
   `ChainBackend`; neither polls Esplora independently.
 - `BestBlockAndSubscribe` holds `TipPoller.mu` across `{Subscribe + tip-read}`
