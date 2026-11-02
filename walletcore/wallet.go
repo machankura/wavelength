@@ -42,6 +42,14 @@ type Wallet struct {
 	// btcwallet's waddrmgr for HD key derivation.
 	KeyRing keychain.SecretKeyRing
 
+	// Controller funds and finalizes PSBTs for the wallet. It is
+	// BtcWallet for wallets that hold their own keys. Callers that
+	// sign must go through Controller rather than BtcWallet, so a
+	// watch-only wallet can substitute a controller that forwards
+	// signing to a remote signer while BtcWallet keeps tracking the
+	// chain.
+	Controller lnwallet.WalletController
+
 	// ChainParams identifies the Bitcoin network.
 	ChainParams *chaincfg.Params
 

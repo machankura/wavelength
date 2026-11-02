@@ -250,6 +250,7 @@ func NewWithNeutrino(cfg Config,
 		Wallet: walletcore.Wallet{
 			Signer:      btcw,
 			BtcWallet:   btcw,
+			Controller:  btcw,
 			KeyRing:     keyRing,
 			ChainParams: cfg.ChainParams,
 			WalletLog:   cfg.Log,

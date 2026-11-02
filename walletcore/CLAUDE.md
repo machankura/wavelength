@@ -10,6 +10,10 @@ btcwallet.BtcWallet regardless of the underlying chain source.
 ## Key Types
 
 - `Wallet` — Core wallet struct embedding `input.Signer`. Provides key derivation, P2TR address generation, balance queries, and UTXO listing. Also implements `proofkeys.Backend` (via `ProofSigner` method). Chain-specific implementations embed this to satisfy `round.ClientWallet`.
+  `Wallet.Controller` (an `lnwallet.WalletController`, set to `BtcWallet` by
+  both backends) is the only path for funding and finalizing PSBTs, so a
+  watch-only wallet can swap in a remote-signing controller while
+  `BtcWallet` keeps tracking the chain.
 - `BoardingBackendBase` — Shared boarding functionality: taproot script import under BIP86 scope, imported address tracking for UTXO filtering, and HD key derivation. Chain-specific adapters embed this and add `ListUnspent`, `GetTransaction`, `GetBlock`.
 - `Config` — Base configuration (seed or BIP32 master `RootKey`, wallet
   password, birthday, chain params (mainnet/testnet/testnet4/regtest),

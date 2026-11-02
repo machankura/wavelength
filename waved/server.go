@@ -5771,7 +5771,7 @@ func (w *lwUnrollWallet) FundPsbt(ctx context.Context, packetBytes []byte,
 		return nil, fmt.Errorf("parse PSBT: %w", err)
 	}
 
-	_, err = w.Wallet.BtcWallet.FundPsbt(
+	_, err = w.Wallet.Controller.FundPsbt(
 		packet, 1, chainfee.SatPerKWeight(feeRateSatPerVByte*250),
 		lnwallet.DefaultAccountName, nil,
 		btcwalletpkg.CoinSelectionLargest, nil,
@@ -5887,7 +5887,7 @@ func (w *btcwUnrollWallet) FinalizePsbt(_ context.Context, packetBytes []byte) (
 		return nil, fmt.Errorf("parse PSBT: %w", err)
 	}
 
-	if err := w.Wallet.BtcWallet.FinalizePsbt(
+	if err := w.Wallet.Controller.FinalizePsbt(
 		packet, lnwallet.DefaultAccountName,
 	); err != nil {
 		return nil, fmt.Errorf("btcwallet FinalizePsbt: %w", err)
@@ -5913,7 +5913,7 @@ func (w *btcwUnrollWallet) FundPsbt(ctx context.Context, packetBytes []byte,
 		return nil, fmt.Errorf("parse PSBT: %w", err)
 	}
 
-	_, err = w.Wallet.BtcWallet.FundPsbt(
+	_, err = w.Wallet.Controller.FundPsbt(
 		packet, 1, chainfee.SatPerKWeight(feeRateSatPerVByte*250),
 		lnwallet.DefaultAccountName, nil,
 		btcwalletpkg.CoinSelectionLargest, nil,

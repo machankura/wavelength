@@ -214,6 +214,7 @@ func New(cfg Config) (*Wallet, error) {
 		Wallet: walletcore.Wallet{
 			Signer:      btcw,
 			BtcWallet:   btcw,
+			Controller:  btcw,
 			KeyRing:     keyRing,
 			ChainParams: cfg.ChainParams,
 			WalletLog:   cfg.Log,
@@ -367,7 +368,7 @@ func (w *Wallet) KeyRing() keychain.SecretKeyRing {
 // FinalizePsbtDirect signs and finalizes a PSBT using btcwallet.
 // This is the lwwallet equivalent of LND's WalletKit.FinalizePsbt.
 func (w *Wallet) FinalizePsbtDirect(packet *psbt.Packet) error {
-	return w.BtcWallet.FinalizePsbt(
+	return w.Controller.FinalizePsbt(
 		packet, lnwallet.DefaultAccountName,
 	)
 }
