@@ -1391,6 +1391,13 @@ type InitWalletRequest struct {
 	// under purpose 86 and wpkh() under purpose 84 are accepted, with coin
 	// type 0' on every network and account 0. Descriptors are as secret as
 	// a seed.
+	//
+	// Instead of master-key descriptors, the entries may be account-level
+	// private keys: the tr() account key at [fp/86h/0h/0h] (and optionally
+	// wpkh() at [fp/84h/0h/0h]) plus the key families as one
+	// [fp/1017h/COINh]XPRV entry or one [fp/1017h/COINh/FAMILYh]XPRV/0/*
+	// entry per family 0 to 255. The wallet then keeps them encrypted under
+	// wallet_password and signs in process.
 	Descriptors []string `protobuf:"bytes,6,rep,name=descriptors,proto3" json:"descriptors,omitempty"`
 	// birthday_unix is the earliest time, in Unix seconds, at which the
 	// descriptor keys may have received funds. It bounds the first rescan.
