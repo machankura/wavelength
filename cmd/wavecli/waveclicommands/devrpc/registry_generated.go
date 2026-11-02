@@ -45,6 +45,13 @@ func generatedRegistry() []serviceSpec {
 					Comments: "UnlockWallet decrypts an existing wallet seed using the provided\npassword and starts the wallet subsystem. Only available in\nlwwallet mode when the wallet is locked.",
 				},
 				{
+					Name:     "ListWalletDescriptors",
+					Aliases:  []string{"list-wallet-descriptors"},
+					Input:    "waverpc.ListWalletDescriptorsRequest",
+					Output:   "waverpc.ListWalletDescriptorsResponse",
+					Comments: "ListWalletDescriptors returns the output descriptors of the\nself-managed wallet: by default the public account-level tr and wpkh\ndescriptors, which are safe to import into watch-only software. With\ninclude_private the caller must resupply the wallet's mnemonic or\nroot descriptors; the daemon checks them against the open wallet and\nonly then renders private descriptors, so an unlocked daemon never\nreveals key material on its own. Only available in lwwallet and\nbtcwallet mode once the wallet is ready.",
+				},
+				{
 					Name:     "GetBalance",
 					Aliases:  []string{"get-balance"},
 					Input:    "waverpc.GetBalanceRequest",

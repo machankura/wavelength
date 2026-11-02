@@ -23,6 +23,7 @@ const (
 	DaemonService_GenSeed_FullMethodName                                        = "/waverpc.DaemonService/GenSeed"
 	DaemonService_InitWallet_FullMethodName                                     = "/waverpc.DaemonService/InitWallet"
 	DaemonService_UnlockWallet_FullMethodName                                   = "/waverpc.DaemonService/UnlockWallet"
+	DaemonService_ListWalletDescriptors_FullMethodName                          = "/waverpc.DaemonService/ListWalletDescriptors"
 	DaemonService_GetBalance_FullMethodName                                     = "/waverpc.DaemonService/GetBalance"
 	DaemonService_ListVTXOs_FullMethodName                                      = "/waverpc.DaemonService/ListVTXOs"
 	DaemonService_NewAddress_FullMethodName                                     = "/waverpc.DaemonService/NewAddress"
@@ -93,6 +94,15 @@ type DaemonServiceClient interface {
 	// password and starts the wallet subsystem. Only available in
 	// lwwallet mode when the wallet is locked.
 	UnlockWallet(ctx context.Context, in *UnlockWalletRequest, opts ...grpc.CallOption) (*UnlockWalletResponse, error)
+	// ListWalletDescriptors returns the output descriptors of the
+	// self-managed wallet: by default the public account-level tr and wpkh
+	// descriptors, which are safe to import into watch-only software. With
+	// include_private the caller must resupply the wallet's mnemonic or
+	// root descriptors; the daemon checks them against the open wallet and
+	// only then renders private descriptors, so an unlocked daemon never
+	// reveals key material on its own. Only available in lwwallet and
+	// btcwallet mode once the wallet is ready.
+	ListWalletDescriptors(ctx context.Context, in *ListWalletDescriptorsRequest, opts ...grpc.CallOption) (*ListWalletDescriptorsResponse, error)
 	// GetBalance returns the current balance of the wallet, broken down
 	// by boarding (on-chain) and VTXO (off-chain) balances.
 	GetBalance(ctx context.Context, in *GetBalanceRequest, opts ...grpc.CallOption) (*GetBalanceResponse, error)
@@ -311,6 +321,16 @@ func (c *daemonServiceClient) UnlockWallet(ctx context.Context, in *UnlockWallet
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(UnlockWalletResponse)
 	err := c.cc.Invoke(ctx, DaemonService_UnlockWallet_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *daemonServiceClient) ListWalletDescriptors(ctx context.Context, in *ListWalletDescriptorsRequest, opts ...grpc.CallOption) (*ListWalletDescriptorsResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ListWalletDescriptorsResponse)
+	err := c.cc.Invoke(ctx, DaemonService_ListWalletDescriptors_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -781,6 +801,15 @@ type DaemonServiceServer interface {
 	// password and starts the wallet subsystem. Only available in
 	// lwwallet mode when the wallet is locked.
 	UnlockWallet(context.Context, *UnlockWalletRequest) (*UnlockWalletResponse, error)
+	// ListWalletDescriptors returns the output descriptors of the
+	// self-managed wallet: by default the public account-level tr and wpkh
+	// descriptors, which are safe to import into watch-only software. With
+	// include_private the caller must resupply the wallet's mnemonic or
+	// root descriptors; the daemon checks them against the open wallet and
+	// only then renders private descriptors, so an unlocked daemon never
+	// reveals key material on its own. Only available in lwwallet and
+	// btcwallet mode once the wallet is ready.
+	ListWalletDescriptors(context.Context, *ListWalletDescriptorsRequest) (*ListWalletDescriptorsResponse, error)
 	// GetBalance returns the current balance of the wallet, broken down
 	// by boarding (on-chain) and VTXO (off-chain) balances.
 	GetBalance(context.Context, *GetBalanceRequest) (*GetBalanceResponse, error)
@@ -976,6 +1005,9 @@ func (UnimplementedDaemonServiceServer) InitWallet(context.Context, *InitWalletR
 }
 func (UnimplementedDaemonServiceServer) UnlockWallet(context.Context, *UnlockWalletRequest) (*UnlockWalletResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method UnlockWallet not implemented")
+}
+func (UnimplementedDaemonServiceServer) ListWalletDescriptors(context.Context, *ListWalletDescriptorsRequest) (*ListWalletDescriptorsResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ListWalletDescriptors not implemented")
 }
 func (UnimplementedDaemonServiceServer) GetBalance(context.Context, *GetBalanceRequest) (*GetBalanceResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetBalance not implemented")
@@ -1195,6 +1227,24 @@ func _DaemonService_UnlockWallet_Handler(srv interface{}, ctx context.Context, d
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(DaemonServiceServer).UnlockWallet(ctx, req.(*UnlockWalletRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _DaemonService_ListWalletDescriptors_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListWalletDescriptorsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(DaemonServiceServer).ListWalletDescriptors(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: DaemonService_ListWalletDescriptors_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(DaemonServiceServer).ListWalletDescriptors(ctx, req.(*ListWalletDescriptorsRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -1988,6 +2038,10 @@ var DaemonService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "UnlockWallet",
 			Handler:    _DaemonService_UnlockWallet_Handler,
+		},
+		{
+			MethodName: "ListWalletDescriptors",
+			Handler:    _DaemonService_ListWalletDescriptors_Handler,
 		},
 		{
 			MethodName: "GetBalance",

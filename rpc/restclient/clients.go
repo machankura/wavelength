@@ -340,6 +340,19 @@ func (c *DaemonServiceClient) UnlockWallet(ctx context.Context,
 	return out, err
 }
 
+// ListWalletDescriptors returns the self-managed wallet's descriptors.
+func (c *DaemonServiceClient) ListWalletDescriptors(ctx context.Context,
+	in *waverpc.ListWalletDescriptorsRequest, _ ...grpc.CallOption) (
+	*waverpc.ListWalletDescriptorsResponse, error) {
+
+	out := new(waverpc.ListWalletDescriptorsResponse)
+	err := c.client.Post(
+		ctx, "/v1/daemon/list-wallet-descriptors", in, out,
+	)
+
+	return out, err
+}
+
 // GetBalance returns the daemon wallet balance.
 func (c *DaemonServiceClient) GetBalance(ctx context.Context,
 	in *waverpc.GetBalanceRequest, _ ...grpc.CallOption) (

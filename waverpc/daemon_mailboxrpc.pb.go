@@ -32,6 +32,8 @@ type DaemonServiceMailboxServer interface {
 	InitWallet(ctx context.Context, req *InitWalletRequest) (*InitWalletResponse, error)
 	// UnlockWallet handles UnlockWallet.
 	UnlockWallet(ctx context.Context, req *UnlockWalletRequest) (*UnlockWalletResponse, error)
+	// ListWalletDescriptors handles ListWalletDescriptors.
+	ListWalletDescriptors(ctx context.Context, req *ListWalletDescriptorsRequest) (*ListWalletDescriptorsResponse, error)
 	// GetBalance handles GetBalance.
 	GetBalance(ctx context.Context, req *GetBalanceRequest) (*GetBalanceResponse, error)
 	// ListVTXOs handles ListVTXOs.
@@ -161,6 +163,16 @@ func RegisterDaemonServiceMailboxServer(r rpc.Router, impl DaemonServiceMailboxS
 		}
 
 		return impl.UnlockWallet(ctx, req)
+	})
+	r.Handle("waverpc.DaemonService", "ListWalletDescriptors", func() proto.Message {
+		return &ListWalletDescriptorsRequest{}
+	}, func(ctx context.Context, msg proto.Message) (proto.Message, error) {
+		req, ok := msg.(*ListWalletDescriptorsRequest)
+		if !ok {
+			return nil, fmt.Errorf("unexpected request type: %T", msg)
+		}
+
+		return impl.ListWalletDescriptors(ctx, req)
 	})
 	r.Handle("waverpc.DaemonService", "GetBalance", func() proto.Message {
 		return &GetBalanceRequest{}
@@ -679,6 +691,29 @@ func (c *DaemonServiceMailboxClient) UnlockWallet(ctx context.Context, req *Unlo
 	}
 
 	resp := new(UnlockWalletResponse)
+	if err := c.C.AwaitRPC(ctx, result.CorrelationID, resp); err != nil {
+		return nil, err
+	}
+
+	return resp, nil
+}
+
+// ListWalletDescriptors calls the ListWalletDescriptors RPC.
+func (c *DaemonServiceMailboxClient) ListWalletDescriptors(ctx context.Context, req *ListWalletDescriptorsRequest, opts ...rpc.RPCOptions) (*ListWalletDescriptorsResponse, error) {
+	var opt rpc.RPCOptions
+	if len(opts) > 0 {
+		opt = opts[0]
+	}
+
+	result, err := c.C.SendRPC(ctx, rpc.ServiceMethod{
+		Service: "waverpc.DaemonService",
+		Method:  "ListWalletDescriptors",
+	}, req, opt)
+	if err != nil {
+		return nil, err
+	}
+
+	resp := new(ListWalletDescriptorsResponse)
 	if err := c.C.AwaitRPC(ctx, result.CorrelationID, resp); err != nil {
 		return nil, err
 	}
