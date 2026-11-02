@@ -80,9 +80,28 @@ VTXOs.
   live-daemon acceptance run, folded into Milestone 4's system test.
   Deferred to Milestone 4: persisting the root fingerprint, which only
   export needs.
-- [ ] Milestone 4: descriptor export (`ListWalletDescriptors`,
-  `wavecli wallet descriptors`) and the end-to-end round-trip test.
-- [ ] Milestone 5: Go embedding SDK and gomobile bridge.
+- [x] (2026-11-02) Milestone 4: descriptor export (`ListWalletDescriptors`,
+  `wavecli descriptors`), fingerprint persistence (migration 28,
+  `db.WalletKeyOriginStore`, SQLite and PostgreSQL tested) and round-trip
+  tests. Done: a unit test drives the RPC over a real lwwallet (public export
+  without origins, refusals, private export authorized by the mnemonic,
+  fingerprint backfill, and a wallet rebuilt from the exported descriptors
+  with the same identity and address chain). Two Docker system tests pass:
+  `TestDescriptorWalletRestoresSeedWalletFunds` (75,000 sat recovered with
+  the same identity and next address) and
+  `TestDescriptorWalletSeesCoreDerivedFunds` (Bitcoin Core derives addresses
+  from the public descriptors; the wallet sees both payments). Remaining: an
+  end-to-end test that boards into a VTXO before export and restores Ark
+  state with `--recover`. It needs the full in-process daemon with an
+  operator. Recovery derives through the key ring, which Milestones 0 and 2
+  prove identical for root-key wallets.
+- [x] (2026-11-02) Milestone 5: Go embedding SDK and gomobile bridge.
+  `wavewalletdk.StartDescriptorWallet` (golden-vector database password,
+  cross-checked by an independent HKDF), `CreateWallet` with descriptors,
+  `Client.ListWalletDescriptors`, the mobile `StartDescriptorWallet` and
+  `ListWalletDescriptors`, the wasm `startDescriptorWallet` and
+  `listWalletDescriptors` verbs, and `sdk/ark.InitWalletFromDescriptors`.
+  The tagged SDK, mobile and wasm builds pass.
 - [ ] Milestone 6: downstream packages (wavelength-sdk, wavelength-mobile,
   wavelength-wdk).
 - [ ] Milestone 7: documentation, logging hygiene and release notes.
@@ -177,6 +196,23 @@ VTXOs.
       tr pub: Core index 0 == wallet first address: True (bcrt1pge4k5cjurqpq350ntvzpkvpnpvp27qxge6y5tsqu9h2f2qdfcjtqmprkn7)
       wpkh pub: checksum match=True
       wpkh pub: Core index 0 == wallet first address: True (bcrt1qw4ac9ct90eyh5cq5446yqnccq3x0dfyd2py94h)
+
+- Observation (Milestone 4): btcwallet stores BIP84 account public keys
+  with SLIP-132 version bytes (`vpub` on test networks, `zpub` on mainnet),
+  while BIP86 keys use plain `tpub`/`xpub`. The key and chain code are
+  identical, so a string comparison failed on the right mnemonic and a
+  rendered descriptor would have carried a `vpub` no descriptor parser
+  accepts. Evidence from a debug run:
+
+      wpkh ours=tpubDCVGHLVWGWKy... btcw=vpub5YT79mKzFsHZ... same pubkey=true same chaincode=true
+
+  Fixed by `walletdesc.StandardAccountPublicKey`, which normalizes to the
+  network's standard version before comparing or rendering.
+
+- Observation (Milestone 4): a public rendering of an account-level private
+  descriptor printed the account `xprv`. It was caught by
+  `TestCanonicalPrivate` before release and fixed by always neutering in the
+  public branch of `Descriptor.Render`.
 
 - Observation: no descriptor parser exists anywhere in the module graph
   (`grep -i 'descriptor\|miniscript' go.sum` is empty) and btcwallet has no
@@ -450,6 +486,18 @@ VTXOs.
   descriptors from btcwallet's account xpubs when no master key is
   available. The extra sentinels let every `Parse` failure map to exactly
   one error for RPC status codes.
+  Date/Author: 2026-11-02, implementer.
+
+- Decision (Milestone 4): the CLI command is `wavecli descriptors`, a
+  top-level command in the Introspection group next to `getinfo`, not
+  `wavecli wallet descriptors`. Private export needs only the resupplied
+  mnemonic or root descriptors, not the wallet password as well.
+  Rationale: there is no `wallet` command group, and the top-level wallet
+  verbs are all `wavewalletrpc`-backed while this one is a `waverpc` call
+  like `getinfo`. Possession of the seed material is a strictly stronger
+  authorization than the password, and the daemon verifies it against the
+  open wallet's account keys and identity before rendering anything. The RPC
+  sits under the same `info:write` macaroon permission as `InitWallet`.
   Date/Author: 2026-11-02, implementer.
 
 - Decision: Protobuf changes add new fields rather than wrapping the existing
