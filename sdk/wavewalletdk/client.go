@@ -312,7 +312,9 @@ func (c *Client) ListWalletDescriptors(ctx context.Context,
 
 	return &ListWalletDescriptorsResult{
 		RootFingerprint: resp.GetRootFingerprint(),
-		Descriptors:     append([]string(nil), resp.GetDescriptors()...),
+		Descriptors: append(
+			[]string(nil), resp.GetDescriptors()...,
+		),
 		IncludesPrivate: resp.GetIncludesPrivate(),
 	}, nil
 }

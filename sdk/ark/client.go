@@ -622,7 +622,9 @@ func (c *Client) InitWallet(ctx context.Context, mnemonic []string,
 	return &WalletInitResult{
 		IdentityPubKey:  resp.IdentityPubkey,
 		RootFingerprint: resp.GetRootFingerprint(),
-		Descriptors:     append([]string(nil), resp.GetDescriptors()...),
+		Descriptors: append(
+			[]string(nil), resp.GetDescriptors()...,
+		),
 	}, nil
 }
 
@@ -651,7 +653,9 @@ func (c *Client) InitWalletFromDescriptors(ctx context.Context,
 	return &WalletInitResult{
 		IdentityPubKey:  resp.IdentityPubkey,
 		RootFingerprint: resp.GetRootFingerprint(),
-		Descriptors:     append([]string(nil), resp.GetDescriptors()...),
+		Descriptors: append(
+			[]string(nil), resp.GetDescriptors()...,
+		),
 	}, nil
 }
 
