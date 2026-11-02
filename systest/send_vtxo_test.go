@@ -539,6 +539,24 @@ func newDirectedSendFixture(t *testing.T,
 
 	t.Helper()
 
+	return newDirectedSendFixtureWithSetup(
+		t, func(_ *SysTestHarness, cfg *waved.Config) {
+			for _, mutate := range cfgMutators {
+				mutate(cfg)
+			}
+		},
+	)
+}
+
+// newDirectedSendFixtureWithSetup is newDirectedSendFixture for scenarios
+// whose daemon config depends on extra harness infrastructure, such as a
+// second lnd node. setup runs after the base config is built and before the
+// DB is seeded, with the harness the daemon will run against.
+func newDirectedSendFixtureWithSetup(t *testing.T,
+	setup func(*SysTestHarness, *waved.Config)) *directedSendFixture {
+
+	t.Helper()
+
 	h := NewSysTestHarness(t)
 
 	operatorPriv, err := btcec.NewPrivateKey()
@@ -598,9 +616,7 @@ func newDirectedSendFixture(t *testing.T,
 	cfg.RPC.NoTLS = true
 	cfg.RPC.NoMacaroons = true
 
-	for _, mutate := range cfgMutators {
-		mutate(cfg)
-	}
+	setup(h, cfg)
 
 	seededOutpoint := seedLiveVTXO(
 		t, cfg, operatorPriv.PubKey(),
@@ -847,6 +863,31 @@ func seedVTXO(t *testing.T, cfg *waved.Config, operatorKey *btcec.PublicKey,
 
 	t.Helper()
 
+	clientPriv, err := btcec.NewPrivateKey()
+	require.NoError(t, err)
+
+	return seedVTXOWithOwner(
+		t, cfg, operatorKey, keychain.KeyDescriptor{
+			PubKey: clientPriv.PubKey(),
+			KeyLocator: keychain.KeyLocator{
+				Family: types.VTXOOwnerKeyFamily,
+				Index:  7,
+			},
+		}, amount, label, status,
+	)
+}
+
+// seedVTXOWithOwner is seedVTXO with a caller-chosen owner key. The seeded
+// VTXO is spendable only when owner is a key the daemon's wallet can derive
+// at owner.KeyLocator; seedVTXO's random owner key is enough for flows whose
+// signatures the fake operator never checks.
+func seedVTXOWithOwner(t *testing.T, cfg *waved.Config,
+	operatorKey *btcec.PublicKey, owner keychain.KeyDescriptor,
+	amount btcutil.Amount, label string,
+	status vtxo.VTXOStatus) wire.OutPoint {
+
+	t.Helper()
+
 	networkDir := cfg.NetworkDir()
 	require.NoError(t, os.MkdirAll(networkDir, 0o700))
 
@@ -867,19 +908,16 @@ func seedVTXO(t *testing.T, cfg *waved.Config, operatorKey *btcec.PublicKey,
 	)
 	vtxoStore := store.NewVTXOStore(clock.NewDefaultClock())
 
-	clientPriv, err := btcec.NewPrivateKey()
-	require.NoError(t, err)
-
 	roundID, err := round.NewRoundID()
 	require.NoError(t, err)
 
 	descriptor, err := tree.NewVTXODescriptor(
-		amount, clientPriv.PubKey(), operatorKey, 144,
+		amount, owner.PubKey, operatorKey, 144,
 	)
 	require.NoError(t, err)
 
 	tapScript, err := arkscript.VTXOTapScript(
-		clientPriv.PubKey(), operatorKey, 144,
+		owner.PubKey, operatorKey, 144,
 	)
 	require.NoError(t, err)
 
@@ -945,15 +983,9 @@ func seedVTXO(t *testing.T, cfg *waved.Config, operatorKey *btcec.PublicKey,
 		Amount:         amount,
 		PolicyTemplate: descriptor.PolicyTemplate,
 		PkScript:       descriptor.PkScript,
-		ClientKey: keychain.KeyDescriptor{
-			PubKey: clientPriv.PubKey(),
-			KeyLocator: keychain.KeyLocator{
-				Family: types.VTXOOwnerKeyFamily,
-				Index:  7,
-			},
-		},
-		OperatorKey: operatorKey,
-		TapScript:   tapScript,
+		ClientKey:      owner,
+		OperatorKey:    operatorKey,
+		TapScript:      tapScript,
 		Ancestry: []types.Ancestry{{
 			TreePath:       treePath,
 			CommitmentTxID: commitmentTxID,
