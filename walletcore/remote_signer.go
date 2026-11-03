@@ -9,6 +9,7 @@ import (
 
 	"github.com/btcsuite/btcd/chaincfg/v2"
 	"github.com/btcsuite/btcd/chainhash/v2"
+	"github.com/lightninglabs/wavelength/accountsigner"
 	"github.com/lightninglabs/wavelength/lib/keyfamily"
 	"github.com/lightninglabs/wavelength/walletdesc"
 	"github.com/lightningnetwork/lnd/blockcache"
@@ -169,35 +170,106 @@ type RemoteSigning struct {
 // watch-only btcwallet described by cfg, connects to the remote signer and
 // builds the key ring over both. cfg.PublicPass must be the user's wallet
 // password. On error nothing is left open.
+//
+// A minimal bundle, given instead of a full one, creates a split-signing
+// wallet: placeholders complete the bundle for import, the authentication
+// families' private keys go into the account keystore under the password,
+// and the supplied families are recorded beside it. Opening a wallet with
+// such a keystore restores the split. A split-signing wallet signs
+// authentication requests in process and everything else remotely, and
+// refuses to derive or sign with any family its bundle did not supply.
 func OpenRemoteSigning(ctx context.Context, cfg btcwallet.Config,
-	bundle *walletdesc.WatchOnlyBundle, remote RemoteSignerConfig,
+	bundle *walletdesc.WatchOnlyBundle, minimal *walletdesc.MinimalBundle,
+	remote RemoteSignerConfig,
 	blockCache *blockcache.BlockCache) (*RemoteSigning, error) {
 
 	if err := remote.Validate(); err != nil {
 		return nil, err
 	}
 
+	dialCtx, cancel := context.WithTimeout(ctx, remote.Timeout)
+	defer cancel()
+
+	remoteConn, err := DialRemoteSigner(dialCtx, remote)
+	if err != nil {
+		return nil, err
+	}
+
+	signing, err := OpenWithSigner(
+		cfg, bundle, minimal, remoteConn, blockCache,
+	)
+	if err != nil {
+		remoteConn.Stop()
+
+		return nil, err
+	}
+
+	return signing, nil
+}
+
+// OpenWithSigner is OpenRemoteSigning over an already established signer
+// connection, which the result owns once it returns without error.
+func OpenWithSigner(cfg btcwallet.Config, bundle *walletdesc.WatchOnlyBundle,
+	minimal *walletdesc.MinimalBundle,
+	remoteConn rpcwallet.RemoteSignerConnection,
+	blockCache *blockcache.BlockCache) (*RemoteSigning, error) {
+
+	if bundle != nil && minimal != nil {
+		return nil, errors.New("give a full or a minimal bundle, not " +
+			"both")
+	}
+
+	if minimal != nil {
+		var err error
+		bundle, err = minimal.WithPlaceholders(cfg.NetParams)
+		if err != nil {
+			return nil, fmt.Errorf("complete minimal bundle: %w",
+				err)
+		}
+	}
+
 	btcw, err := NewWatchOnlyBtcWallet(cfg, bundle, blockCache)
 	if err != nil {
 		return nil, err
 	}
+	db := btcw.InternalWallet().Database()
 
-	dialCtx, cancel := context.WithTimeout(ctx, remote.Timeout)
-	defer cancel()
-
-	conn, err := DialRemoteSigner(dialCtx, remote)
+	local, supplied, err := splitSigningKeys(
+		btcw, minimal, bundle == nil, cfg,
+	)
 	if err != nil {
-		_ = btcw.InternalWallet().Database().Close()
+		_ = db.Close()
 
 		return nil, err
 	}
 
+	var conn rpcwallet.RemoteSignerConnection = remoteConn
+	if local != nil {
+		var localFamilies []keychain.KeyFamily
+		for _, acct := range local.Accounts {
+			localFamilies = append(
+				localFamilies, keychain.KeyFamily(acct.Account),
+			)
+		}
+
+		conn = &routedConn{
+			remote:        remoteConn,
+			local:         accountsigner.New(local, cfg.NetParams),
+			localFamilies: localFamilies,
+		}
+	}
+
 	ring, err := NewRemoteKeyRing(btcw, cfg.CoinType, conn, cfg.NetParams)
 	if err != nil {
-		conn.Stop()
-		_ = btcw.InternalWallet().Database().Close()
+		if local != nil {
+			local.Zero()
+		}
+		_ = db.Close()
 
 		return nil, err
+	}
+	if local != nil {
+		ring = &guardedKeyRing{RemoteKeyRing: ring, supplied: supplied}
 	}
 
 	return &RemoteSigning{
@@ -205,4 +277,66 @@ func OpenRemoteSigning(ctx context.Context, cfg btcwallet.Config,
 		KeyRing:   ring,
 		Conn:      conn,
 	}, nil
+}
+
+// splitSigningKeys returns the local authentication keys and supplied
+// families of a split-signing wallet, or nil for a fully remote one. On
+// creation from a minimal bundle it writes them to the wallet database
+// first; on open it reads them back with the password and checks the
+// bundle still covers every family this build uses.
+func splitSigningKeys(btcw *btcwallet.BtcWallet,
+	minimal *walletdesc.MinimalBundle, opening bool, cfg btcwallet.Config) (
+	*walletdesc.AccountKeys, []keychain.KeyFamily, error) {
+
+	db := btcw.InternalWallet().Database()
+	password := cfg.PublicPass
+
+	var supplied []keychain.KeyFamily
+	switch {
+	case minimal != nil:
+		err := accountsigner.StoreKeys(db, password, minimal.Local, nil)
+		if err != nil {
+			return nil, nil, fmt.Errorf("store local keys: %w", err)
+		}
+
+		supplied = minimal.Supplied()
+		err = accountsigner.StoreSuppliedFamilies(db, supplied)
+		if err != nil {
+			return nil, nil, fmt.Errorf("store supplied "+
+				"families: %w", err)
+		}
+
+	case opening:
+		has, err := accountsigner.HasKeystore(db)
+		if err != nil || !has {
+			return nil, nil, err
+		}
+
+		supplied, err = accountsigner.LoadSuppliedFamilies(db)
+		if err != nil {
+			return nil, nil, err
+		}
+
+	default:
+		return nil, nil, nil
+	}
+
+	local, err := accountsigner.LoadKeys(db, password, cfg.NetParams)
+	if err != nil {
+		return nil, nil, fmt.Errorf("load local keys: %w", err)
+	}
+
+	var localFamilies []keychain.KeyFamily
+	for _, acct := range local.Accounts {
+		localFamilies = append(
+			localFamilies, keychain.KeyFamily(acct.Account),
+		)
+	}
+	if err := checkSplitCoverage(supplied, localFamilies); err != nil {
+		local.Zero()
+
+		return nil, nil, err
+	}
+
+	return local, supplied, nil
 }

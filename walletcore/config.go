@@ -62,6 +62,12 @@ type Config struct {
 	// existing database.
 	WatchOnly *walletdesc.WatchOnlyBundle
 
+	// WatchOnlyMinimal is a minimal bundle to create a split-signing
+	// wallet from: fund keys remote, authentication keys local. Like
+	// WatchOnly it requires RemoteSigner and excludes every other
+	// creation input.
+	WatchOnlyMinimal *walletdesc.MinimalBundle
+
 	// AccountKeys is the account-level private keys to create a wallet
 	// from, instead of a seed or root key. The wallet keeps them
 	// encrypted under WalletPassword and signs in process. Like Seed it

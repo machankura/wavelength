@@ -176,10 +176,12 @@ type WalletSource struct {
 	Seed    []byte
 	RootKey *hdkeychain.ExtendedKey
 
-	// WatchOnly creates a remote-signing wallet; RemoteSigner signs for
-	// it and also selects opening an existing one.
-	WatchOnly    *walletdesc.WatchOnlyBundle
-	RemoteSigner *RemoteSignerConfig
+	// WatchOnly or WatchOnlyMinimal creates a remote-signing wallet;
+	// RemoteSigner signs for it and also selects opening an existing
+	// one.
+	WatchOnly        *walletdesc.WatchOnlyBundle
+	WatchOnlyMinimal *walletdesc.MinimalBundle
+	RemoteSigner     *RemoteSignerConfig
 
 	// AccountKeys creates an account-key wallet.
 	AccountKeys *walletdesc.AccountKeys
@@ -202,7 +204,8 @@ func OpenSigning(ctx context.Context, cfg btcwallet.Config, src WalletSource,
 		// data instead.
 		cfg.PublicPass = src.WalletPassword
 		signing, err := OpenRemoteSigning(
-			ctx, cfg, src.WatchOnly, *src.RemoteSigner, blockCache,
+			ctx, cfg, src.WatchOnly, src.WatchOnlyMinimal,
+			*src.RemoteSigner, blockCache,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("open remote-signing wallet: %w",

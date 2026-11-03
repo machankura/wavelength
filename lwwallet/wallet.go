@@ -96,8 +96,9 @@ func checkWalletInvariants(cfg Config) error {
 	}
 
 	create, err := walletcore.ValidateWalletSource(
-		cfg.Seed, cfg.RootKey, cfg.WatchOnly, cfg.AccountKeys,
-		cfg.RemoteSigner, cfg.ChainParams,
+		cfg.Seed, cfg.RootKey,
+		cfg.WatchOnly != nil || cfg.WatchOnlyMinimal != nil,
+		cfg.AccountKeys, cfg.RemoteSigner, cfg.ChainParams,
 	)
 	if err != nil {
 		return err
@@ -194,12 +195,13 @@ func New(cfg Config) (*Wallet, error) {
 	}
 	signing, err := walletcore.OpenSigning(
 		context.Background(), btcwCfg, walletcore.WalletSource{
-			Seed:           cfg.Seed,
-			RootKey:        cfg.RootKey,
-			WatchOnly:      cfg.WatchOnly,
-			RemoteSigner:   cfg.RemoteSigner,
-			AccountKeys:    cfg.AccountKeys,
-			WalletPassword: cfg.WalletPassword,
+			Seed:             cfg.Seed,
+			RootKey:          cfg.RootKey,
+			WatchOnly:        cfg.WatchOnly,
+			WatchOnlyMinimal: cfg.WatchOnlyMinimal,
+			RemoteSigner:     cfg.RemoteSigner,
+			AccountKeys:      cfg.AccountKeys,
+			WalletPassword:   cfg.WalletPassword,
 		}, blockCache,
 	)
 	if err != nil {

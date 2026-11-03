@@ -111,13 +111,14 @@ func NewBtcWallet(cfg btcwallet.Config, rootKey *hdkeychain.ExtendedKey,
 }
 
 // ValidateWalletSource extends ValidateCreateInput with the watch-only
-// inputs: a bundle of account public keys or a set of account private keys
+// inputs: a full or minimal bundle (watchOnly) or a set of account private
+// keys
 // creates a database like a seed does, and a remote signer config makes
 // the wallet watch-only. It reports whether a new database is to be
 // created. A bundle needs a remote signer, a remote-signing wallet is only
 // ever created from a bundle, and account keys stand alone.
 func ValidateWalletSource(seed []byte, rootKey *hdkeychain.ExtendedKey,
-	bundle *walletdesc.WatchOnlyBundle, accountKeys *walletdesc.AccountKeys,
+	watchOnly bool, accountKeys *walletdesc.AccountKeys,
 	remote *RemoteSignerConfig, params *chaincfg.Params) (bool, error) {
 
 	create, err := ValidateCreateInput(seed, rootKey, params)
@@ -127,7 +128,7 @@ func ValidateWalletSource(seed []byte, rootKey *hdkeychain.ExtendedKey,
 
 	if accountKeys != nil {
 		switch {
-		case create || bundle != nil:
+		case create || watchOnly:
 			return false, errors.New("account keys are mutually " +
 				"exclusive with a seed, root key or " +
 				"watch-only bundle")
@@ -142,10 +143,10 @@ func ValidateWalletSource(seed []byte, rootKey *hdkeychain.ExtendedKey,
 	}
 
 	switch {
-	case bundle != nil && create:
+	case watchOnly && create:
 		return false, ErrBundleAndSeed
 
-	case bundle != nil && remote == nil:
+	case watchOnly && remote == nil:
 		return false, errors.New("a watch-only bundle needs a remote " +
 			"signer")
 
@@ -154,5 +155,5 @@ func ValidateWalletSource(seed []byte, rootKey *hdkeychain.ExtendedKey,
 			"from a watch-only bundle, not a seed or root key")
 	}
 
-	return create || bundle != nil, nil
+	return create || watchOnly, nil
 }

@@ -47,6 +47,15 @@ btcwallet.BtcWallet regardless of the underlying chain source.
   key-holding database signs through btcwallet, a watch-only one with a
   keystore loads it with the password, and a watch-only one without a
   keystore fails with `ErrWatchOnlyWithoutSigner`.
+- `OpenWithSigner` / `routedConn` / `guardedKeyRing` — split signing from a
+  `walletdesc.MinimalBundle`. `OpenRemoteSigning` dials and hands over to
+  `OpenWithSigner`, which creates the watch-only wallet with placeholder
+  families, keeps the authentication families' keys in the account
+  keystore, and fronts the RPC key ring with a connection that routes
+  families 21 and 43 to an in-process `accountsigner.Signer` and everything
+  else to the remote signer. `guardedKeyRing` refuses `ErrFamilyNotSupplied`
+  for any family outside the registry or not supplied, and an open whose
+  stored bundle misses a registry family fails `ErrBundleOutdated`.
 - `OutputLeaser` — Interface for UTXO reservation during coin selection:
   `LeaseOutput(ctx, id, outpoint, expiry)` and
   `ReleaseOutput(ctx, id, outpoint)`. Implemented by `lwwallet.BoardingBackendAdapter`
@@ -85,6 +94,12 @@ btcwallet.BtcWallet regardless of the underlying chain source.
 - Imported accounts must get the number their key was derived at;
   `NewWatchOnlyBtcWallet` checks each import's `AccountNumber`, since
   btcwallet assigns one past the scope's last account.
+- A split-signing wallet never derives from a placeholder family: their
+  xpubs come from a key discarded at import, so funds sent to one could
+  never be spent. The guard checks the family of every derivation, ECDH,
+  message signature, MuSig2 session and locator-bearing `SignOutputRaw`.
+  PSBT signing always goes to the remote signer, since authentication keys
+  appear in no output script.
 - Account-key wallets keep the static public passphrase, like seed
   wallets; the wallet password protects the keystore. Remote-signing
   wallets instead use the password as the public passphrase, which is why

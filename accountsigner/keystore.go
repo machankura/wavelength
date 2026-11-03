@@ -13,6 +13,7 @@ import (
 	"github.com/btcsuite/btcwallet/waddrmgr"
 	"github.com/btcsuite/btcwallet/walletdb"
 	"github.com/lightninglabs/wavelength/walletdesc"
+	"github.com/lightningnetwork/lnd/keychain"
 )
 
 // keystoreVersion is the format of the encrypted key record.
@@ -272,4 +273,57 @@ func zero(b []byte) {
 	for i := range b {
 		b[i] = 0
 	}
+}
+
+// keystoreSuppliedKey holds the key families a minimal bundle supplied,
+// remote and local. It is public, so it is stored unencrypted.
+var keystoreSuppliedKey = []byte("supplied-families")
+
+// StoreSuppliedFamilies records the key families a split-signing wallet's
+// bundle supplied, next to its keystore. The keystore must already exist.
+func StoreSuppliedFamilies(db walletdb.DB,
+	families []keychain.KeyFamily) error {
+
+	raw := make([]byte, 0, 4*len(families))
+	for _, family := range families {
+		raw = binary.BigEndian.AppendUint32(raw, uint32(family))
+	}
+
+	return walletdb.Update(db, func(tx walletdb.ReadWriteTx) error {
+		bucket := tx.ReadWriteBucket(keystoreBucket)
+		if bucket == nil {
+			return ErrNoKeystore
+		}
+
+		return bucket.Put(keystoreSuppliedKey, raw)
+	})
+}
+
+// LoadSuppliedFamilies returns the key families StoreSuppliedFamilies
+// recorded, or nil for a keystore that holds a full set of account keys.
+func LoadSuppliedFamilies(db walletdb.DB) ([]keychain.KeyFamily, error) {
+	var families []keychain.KeyFamily
+	err := walletdb.View(db, func(tx walletdb.ReadTx) error {
+		bucket := tx.ReadBucket(keystoreBucket)
+		if bucket == nil {
+			return ErrNoKeystore
+		}
+
+		raw := bucket.Get(keystoreSuppliedKey)
+		if len(raw)%4 != 0 {
+			return errors.New("malformed supplied families record")
+		}
+		for i := 0; i < len(raw); i += 4 {
+			families = append(
+				families,
+				keychain.KeyFamily(
+					binary.BigEndian.Uint32(raw[i:]),
+				),
+			)
+		}
+
+		return nil
+	})
+
+	return families, err
 }
