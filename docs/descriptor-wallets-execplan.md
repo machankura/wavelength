@@ -218,8 +218,39 @@ VTXOs.
   releases account private keys for `--minimal`; and the systests run the
   signer in-process through the same `signerserver` package the binary
   serves, rather than as a second process.
-- [ ] Extension W5: per-family key overrides for fund slots, with a
-  manifest, signer routing and per-slot unlock probes.
+- [x] (2026-11-03) Extension W5: per-family key overrides for fund slots.
+  `walletdesc.Manifest` (JSON, version 1) assigns the on-chain account and
+  each fund family a key with its real origin. `ParseManifest` refuses
+  auth-family overrides, script descriptors, duplicate keys or origins and
+  missing slots, and `CheckIdentity` refuses a family-6 override without
+  `override_identity`. `MinimalBundle` joins the manifest with the
+  authentication keys for the W2 split-signing import, keeping each
+  account's origin so btcwallet records the real fingerprint. The wallet
+  stores the canonical manifest in its keystore bucket, checks its accounts
+  against it on every open (`ErrManifestMismatch`), and reports its hash in
+  InitWallet, Create and GetInfo. On every start of a signer-backed wallet,
+  `walletcore.ProbeSigner` replaces the identity-only check with a check of
+  every fund slot. `wavesigner create --override SLOT=FILE` and
+  `export-watchonly --manifest-out --auth-keys-out` are the signer side, and
+  `wavecli create --watch-only-manifest --auth-keys-file
+  [--override-identity]` is the daemon side. Acceptance:
+  `TestManifestSignerDaemon` overrides families 42, 44 and 202 and the
+  on-chain account from three other roots. It runs the W0 scenario
+  (boarding with overridden 42, an out-of-round spend of a VTXO owned by
+  overridden 44, a boarding sweep). A primary-only signer is refused for
+  exactly those four slots, and a fresh wallet restored from the manifest
+  derives every fund slot's key and reports the same hash. Deviations:
+  - The signer keeps no separate routing table. Its account keys hold each
+    slot's key at the slot's logical position, so a logical locator or PSBT
+    path is translated implicitly, and the existing derived-key check still
+    applies.
+  - The W3 in-process path (`descriptors` with account keys) takes no
+    manifest. Overrides need a signer.
+  - The restore check compares keys, not recovered state. `--recover` needs
+    an indexer, and the fake operator does not serve one.
+  - No check makes a restore from the primary seed alone fail loudly. Such
+    a restore is simply a different wallet, and the guide says so under
+    Backup.
 - [x] (2026-11-02) Extension W6: Ark output descriptor export
   (`ListArkOutputDescriptors`, `wavecli descriptors --ark [--kind]`), one
   `rawtr()` per boarding output, live VTXO and receive script. A
@@ -229,11 +260,10 @@ VTXOs.
   generated `Descriptor()` method; there is no cursor, so the list is bounded
   by wallet size; VTXO entries report exit delay 0 (unknown) because the
   delay sits in the policy template, which is not decoded here.
-- [ ] Not started: W5 (per-family overrides).
-  W4's `signerserver` serves `accountsigner.Signer` over
-  gRPC almost unchanged, since its methods already have the signrpc and
-  walletrpc server shapes. The native remote-signer and account-key
-  systests are the acceptance base.
+- [ ] Not started: signer-side spending policy, inbound signer
+  connections, bundle and manifest support in the SDK and mobile bridges,
+  `wavecli` export against a full-key daemon, manifests for in-process
+  account-key wallets, and a completed Ark round against a real operator.
 
 
 ## Surprises & Discoveries
@@ -494,6 +524,20 @@ VTXOs.
   Evidence: lnd `lnwallet/rpcwallet/remote_signer_connection.go`,
   `walletcore/remote_signer_dial.go`.
 
+- Observation: a signer holding only the primary root fails the slot probe
+  for exactly the overridden slots and passes every other one. So the
+  probe's error names which slots of a backup are missing their keys.
+  Evidence: `walletcore/signer_probe_test.go`,
+  `systest/manifest_signer_test.go`.
+
+- Observation: the signer needs no routing table. `rpcwallet.RPCKeyRing`
+  sends logical locators and, for PSBT inputs, the logical path under the
+  fingerprint btcwallet stored for the account. That is the override's real
+  fingerprint, because the import passes it. An account-key signer that
+  holds each slot's own key at that slot already answers both correctly.
+  Evidence: `TestManifestSignerDaemon`, whose on-chain probe signs a PSBT
+  with the overridden account.
+
 ## Decision Log
 
 - Decision: In this plan a "descriptor wallet" is a wallet whose private
@@ -721,6 +765,15 @@ VTXOs.
   through the same watch-only node waved uses. A completed round needs an
   end-to-end environment with a real operator.
   Date/Author: 2026-11-02, implementer.
+
+- Decision: W5 manifests reach the daemon as a separate
+  `watch_only_manifest` plus `auth_keys` pair rather than as a third bundle
+  form.
+  Rationale: the manifest is public and is the backup record whose hash
+  users compare, while the authentication keys are secret. Keeping them in
+  separate files lets the manifest be copied freely and the keys be written
+  owner-only.
+  Date/Author: 2026-11-03, implementer.
 
 - Decision: Protobuf changes add new fields rather than wrapping the existing
   `mnemonic` field in a `oneof`.
@@ -2189,3 +2242,12 @@ Surprises & Discoveries (Neuter slice aliasing, SLIP-132 account keys, the
 account-key public rendering bug), and new decisions are in the Decision
 Log (Render instead of String(bool), fingerprint persistence, password-free
 private export, the `wavecli descriptors` command placement).
+
+Revision note (2026-11-03, W5): implemented per-family key overrides and
+marked W5 done in Progress, with its deviations: an implicit signer
+routing, no manifest on the in-process account-key path, a key-level
+restore check, and no loud failure for a seed-only restore. Added two
+findings to Surprises & Discoveries and the separate manifest and
+auth-keys decision to the Decision Log, and listed the work still not
+started.
+

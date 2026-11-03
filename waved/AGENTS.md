@@ -143,6 +143,10 @@ For field-level detail, use `go doc github.com/lightninglabs/wavelength/waved.<S
   from config because the password is btcwallet's public passphrase only
   for watch-only wallets, so it must be known before the database opens;
   `wallet_key_origin.source = 2` records it as a cross-check.
+  `watch_only_manifest` plus `auth_keys` is the other accepted input
+  (`prepareManifestCreate`): fund slots from several keys, imported
+  through the split-signing path; a family-6 override needs
+  `override_identity`. InitWallet and `GetInfo` report the manifest hash.
 - `WaitForWalletServicesReady` resolves after wallet-dependent actors and
   mailbox ingress start, or with the first error before that boundary.
   `DaemonReady` remains the later full-startup signal.

@@ -69,4 +69,5 @@ into specific topics below.
 | Document | Description |
 |----------|-------------|
 | [PLANS.md](../PLANS.md) | ExecPlan specification for complex features |
+| [descriptor-wallets-execplan.md](descriptor-wallets-execplan.md) | Descriptor-defined, watch-only, account-key and manifest wallets, and the Wavelength remote signer |
 | [idempotent-receive-scripts-execplan.md](idempotent-receive-scripts-execplan.md) | Retry-safe `NewReceiveScript` allocation: durable identity, exact replay, and expiry renewal |

@@ -226,6 +226,50 @@ wavesigner --network=regtest run --listen=0.0.0.0:10019 \
   and the key families of its network). It also answers `ListAccounts`, so
   `lncli wallet accounts list` pointed at it prints its account xpubs.
 
+#### Fund slots from other keys (manifests)
+
+A wallet's fund slots do not have to share one root. `wavesigner create
+--override SLOT=FILE` fills a slot with another key: `onchain` (the BIP86
+account) or fund family `6`, `42`, `44`, `45` or `202`. FILE holds either an
+account-level key with its real origin, `[fingerprint/path]xprv...`, or a
+master key and the hardened path to derive, `xprv.../9000h/44h`. The two
+authentication families (21 and 43) always come from the primary root.
+
+```bash
+wavesigner --network=regtest create --mnemonic-file wallet.mnemonic \
+  --override onchain=cold-a.key --override 42=cold-b.key \
+  --override 44=cold-b.key
+wavesigner --network=regtest export-watchonly \
+  --manifest-out wallet.manifest --auth-keys-out auth.keys
+wavecli create --watch-only-manifest wallet.manifest \
+  --auth-keys-file auth.keys
+```
+
+- A signer with overrides cannot export a bundle, because a bundle names
+  one root. It exports a manifest instead: public JSON listing each slot's
+  key with its real origin. Alongside it goes the authentication keys file,
+  which holds private keys and is written owner-only.
+- Each slot holds exactly one key, and no two slots may share a key or an
+  origin. Script descriptors are refused, because an Ark policy has exactly
+  one user key.
+- Overriding family 6 changes the wallet's Ark identity, mailbox and swap
+  key. `wavesigner create` and `wavecli create` both need
+  `--override-identity` for it. A daemon applies a manifest only when it
+  creates the wallet, never to an existing one.
+- On every start, the daemon has the signer sign with every fund slot's
+  first key and spend a fabricated output on the on-chain account. It
+  checks each signature against its own keys, and it refuses to start if
+  any slot fails. An lnd signer, or a `wavesigner` holding only the primary
+  root, fails exactly the overridden slots.
+- `wavecli create` and `wavecli getinfo` print `manifest_hash`. Use it to
+  check that a backup matches the running wallet.
+
+**Backup.** The primary mnemonic alone no longer restores the wallet. To
+restore, you need the manifest, every key source it names, and the primary
+root, because the manifest is the only record of which key fills which
+slot. A wallet created from the primary mnemonic without the manifest is a
+different wallet, and it does not see the overridden slots' funds.
+
 ### lnd Mode
 
 Uses an existing lnd node for signing and key derivation. Point the

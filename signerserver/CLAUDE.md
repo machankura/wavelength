@@ -26,7 +26,11 @@ watch-only node) uses it exactly as it would an lnd signer.
   keys, or a Wavelength aezeed mnemonic (entropy padded to 32 bytes, the
   Wavelength seed; an lnd wallet of the same mnemonic has other keys).
 - `WriteBundle` — the full or minimal export; a minimal bundle is written
-  owner-only and never over a file others can read.
+  owner-only and never over a file others can read. A store whose slots
+  come from several keys (`HasOverrides`) has no bundle form and is
+  refused.
+- `WriteManifest` — the manifest and authentication keys pair for such a
+  store; the manifest is public, the keys file is owner-only.
 
 ## Relationships
 
