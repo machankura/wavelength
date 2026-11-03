@@ -722,6 +722,8 @@ func (r *RPCServer) GetInfo(ctx context.Context, _ *waverpc.GetInfoRequest) (
 	// Populate lwwallet fields if the lightweight wallet is active.
 	r.server.lwWallet.WhenSome(
 		func(w *lwwallet.Wallet) {
+			resp.ManifestHash = w.ManifestHash
+
 			// Get block height from the chain backend.
 			if r.server.chainBackend != nil {
 				height, _, err :=
@@ -745,6 +747,8 @@ func (r *RPCServer) GetInfo(ctx context.Context, _ *waverpc.GetInfoRequest) (
 	// active.
 	r.server.btcwWallet.WhenSome(
 		func(w *btcwbackend.Wallet) {
+			resp.ManifestHash = w.ManifestHash
+
 			// Get block height from the chain backend.
 			if r.server.chainBackend != nil {
 				height, _, err :=

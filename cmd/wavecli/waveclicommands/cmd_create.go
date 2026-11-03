@@ -71,6 +71,17 @@ func newCreateCmd() *cobra.Command {
 			"keys stay on the signer and the daemon signs " +
 			"authentication itself. --birthday applies as for " +
 			"descriptors.\n\n" +
+			"With --watch-only-manifest the fund slots may each " +
+			"come from a different key: the manifest, written " +
+			"by `wavesigner create --override` and " +
+			"`export-watchonly --manifest-out`, assigns the " +
+			"on-chain account and every fund family a public " +
+			"key with its origin, and --auth-keys-file holds " +
+			"the two authentication families' private keys. " +
+			"The signer must hold every slot's key; the daemon " +
+			"checks each one on every start. Replacing the " +
+			"identity family changes the wallet's Ark identity " +
+			"and needs --override-identity.\n\n" +
 			"Example:\n" +
 			"  printf '%s\\n' 'hunter2hunter2' | " +
 			"wavecli create --password-stdin\n" +
@@ -103,10 +114,20 @@ func newCreateCmd() *cobra.Command {
 	cmd.Flags().String("watch-only-bundle-file", "",
 		"path to the remote signer's account public keys, for a "+
 			"wallet whose private keys stay on that signer")
+	cmd.Flags().String("watch-only-manifest", "",
+		"path to a key manifest assigning each fund slot its own "+
+			"public key; requires --auth-keys-file")
+	cmd.Flags().String("auth-keys-file", "",
+		"path to the authentication families' private keys, for "+
+			"--watch-only-manifest")
+	cmd.Flags().Bool("override-identity", false,
+		"allow a --watch-only-manifest that replaces the identity "+
+			"family, which changes the wallet's Ark identity")
 	cmd.Flags().String("birthday", "",
 		"earliest date the descriptor or bundle keys may have "+
 			"received funds (RFC3339 or YYYY-MM-DD); requires "+
-			"--descriptor-file or --watch-only-bundle-file")
+			"--descriptor-file, --watch-only-bundle-file or "+
+			"--watch-only-manifest")
 
 	return cmd
 }
@@ -116,6 +137,8 @@ type createSource struct {
 	mnemonic     []string
 	descriptors  []string
 	bundle       []byte
+	manifest     []byte
+	authKeys     []byte
 	birthdayUnix int64
 }
 
@@ -130,6 +153,39 @@ func validateCreateFlags(cmd *cobra.Command) error {
 	passphraseFile, _ := cmd.Flags().GetString("seed-passphrase-file")
 	printJSON, _ := cmd.Flags().GetBool("print-mnemonic-json")
 	bundleFile, _ := cmd.Flags().GetString("watch-only-bundle-file")
+	manifestFile, _ := cmd.Flags().GetString("watch-only-manifest")
+	authKeysFile, _ := cmd.Flags().GetString("auth-keys-file")
+	overrideIdentity, _ := cmd.Flags().GetBool("override-identity")
+
+	if manifestFile != "" {
+		switch {
+		case authKeysFile == "":
+			return fmt.Errorf("--watch-only-manifest requires " +
+				"--auth-keys-file")
+
+		case bundleFile != "" || descriptorFile != "" ||
+			mnemonicFile != "":
+			return fmt.Errorf("--watch-only-manifest excludes " +
+				"--watch-only-bundle-file, --descriptor-file " +
+				"and --mnemonic-file")
+
+		case passphraseFile != "" || printJSON:
+			return fmt.Errorf("--seed-passphrase-file and " +
+				"--print-mnemonic-json apply only to a " +
+				"mnemonic, not to --watch-only-manifest")
+
+		case !recoverWallet && recoveryWindow != 0:
+			return fmt.Errorf("--recovery-window requires " +
+				"--recover")
+		}
+
+		return nil
+	}
+
+	if authKeysFile != "" || overrideIdentity {
+		return fmt.Errorf("--auth-keys-file and --override-identity " +
+			"require --watch-only-manifest")
+	}
 
 	if bundleFile != "" {
 		switch {
@@ -205,6 +261,8 @@ func readCreateSource(cmd *cobra.Command) (*createSource, error) {
 	mnemonicFile, _ := cmd.Flags().GetString("mnemonic-file")
 	descriptorFile, _ := cmd.Flags().GetString("descriptor-file")
 	bundleFile, _ := cmd.Flags().GetString("watch-only-bundle-file")
+	manifestFile, _ := cmd.Flags().GetString("watch-only-manifest")
+	authKeysFile, _ := cmd.Flags().GetString("auth-keys-file")
 	birthday, _ := cmd.Flags().GetString("birthday")
 
 	var (
@@ -221,6 +279,21 @@ func readCreateSource(cmd *cobra.Command) (*createSource, error) {
 	}
 
 	switch {
+	case manifestFile != "":
+		source.manifest, err = readBoundedFile(
+			manifestFile, "key manifest",
+		)
+		if err != nil {
+			return nil, err
+		}
+		source.authKeys, err = readBoundedFile(
+			authKeysFile, "auth keys",
+		)
+		if err != nil {
+			return nil, err
+		}
+		warnIfShared(authKeysFile, "auth keys file")
+
 	case bundleFile != "":
 		source.bundle, err = readWatchOnlyBundleFile(bundleFile)
 		if err != nil {
@@ -257,6 +330,7 @@ func walletCreate(cmd *cobra.Command, _ []string) error {
 		return err
 	}
 	defer clearStrings(source.descriptors)
+	defer zeroBytes(source.authKeys)
 
 	seedPassphrase, err := readSeedPassphrase(cmd)
 	if err != nil {
@@ -267,7 +341,7 @@ func walletCreate(cmd *cobra.Command, _ []string) error {
 	// The environment can still supply a seed passphrase; refuse it for
 	// descriptors rather than silently ignoring it.
 	fromDescriptors := len(source.descriptors) > 0 ||
-		len(source.bundle) > 0
+		len(source.bundle) > 0 || len(source.manifest) > 0
 	if fromDescriptors && len(seedPassphrase) > 0 {
 		return fmt.Errorf("WAVED_SEED_PASSPHRASE applies only to a " +
 			"mnemonic; unset it to create from descriptors or a " +
@@ -281,6 +355,7 @@ func walletCreate(cmd *cobra.Command, _ []string) error {
 	defer zeroBytes(password)
 
 	printJSON, _ := cmd.Flags().GetBool("print-mnemonic-json")
+	overrideIdentity, _ := cmd.Flags().GetBool("override-identity")
 
 	return withWalletClient(
 		cmd, func(c wavewalletrpc.WalletServiceClient) error {
@@ -297,6 +372,10 @@ func walletCreate(cmd *cobra.Command, _ []string) error {
 					Descriptors:     source.descriptors,
 					BirthdayUnix:    source.birthdayUnix,
 					WatchOnlyBundle: source.bundle,
+
+					WatchOnlyManifest: source.manifest,
+					AuthKeys:          source.authKeys,
+					OverrideIdentity:  overrideIdentity,
 				},
 			)
 			if err != nil {
@@ -460,4 +539,43 @@ func readWatchOnlyBundleFile(path string) ([]byte, error) {
 	}
 
 	return data, nil
+}
+
+// readBoundedFile reads a small creation input the daemon parses and
+// validates itself, refusing an empty or oversized file.
+func readBoundedFile(path, what string) ([]byte, error) {
+	info, err := os.Stat(path)
+	if err != nil {
+		return nil, fmt.Errorf("unable to read %s: %w", what, err)
+	}
+	if info.Size() > maxWatchOnlyBundleBytes {
+		return nil, fmt.Errorf("%s %s is %d bytes, at most %d", what,
+			path, info.Size(), maxWatchOnlyBundleBytes)
+	}
+
+	// The file path is explicitly provided by the CLI user.
+	data, err := os.ReadFile(path) //nolint:gosec // G304
+	if err != nil {
+		return nil, fmt.Errorf("unable to read %s: %w", what, err)
+	}
+	if len(strings.TrimSpace(string(data))) == 0 {
+		return nil, fmt.Errorf("%s %s is empty", what, path)
+	}
+
+	return data, nil
+}
+
+// warnIfShared warns on stderr when a file holding private keys is
+// readable by other local users.
+func warnIfShared(path, what string) {
+	info, err := os.Stat(path)
+	if err != nil || info.Mode().Perm()&0o077 == 0 {
+		return
+	}
+
+	_, _ = fmt.Fprintf(
+		os.Stderr, "warning: %s %s holds private keys and is "+
+			"readable by other users (mode %04o)\n", what, path,
+		info.Mode().Perm(),
+	)
 }

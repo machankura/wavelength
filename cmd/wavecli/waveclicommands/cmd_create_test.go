@@ -79,6 +79,31 @@ func TestValidateCreateFlags(t *testing.T) {
 			"watch-only-bundle-file": "b.json",
 			"print-mnemonic-json":    "true",
 		}, "no mnemonic"},
+		{"manifest", map[string]string{
+			"watch-only-manifest": "m.json",
+			"auth-keys-file":      "a.txt",
+			"override-identity":   "true",
+			"birthday":            "2026-01-01",
+		}, ""},
+		{"manifest without auth keys", map[string]string{
+			"watch-only-manifest": "m.json",
+		}, "requires --auth-keys-file"},
+		{"manifest and bundle", map[string]string{
+			"watch-only-manifest":    "m.json",
+			"auth-keys-file":         "a.txt",
+			"watch-only-bundle-file": "b.json",
+		}, "excludes"},
+		{"manifest and passphrase", map[string]string{
+			"watch-only-manifest":  "m.json",
+			"auth-keys-file":       "a.txt",
+			"seed-passphrase-file": "p.txt",
+		}, "apply only to a mnemonic"},
+		{"auth keys without manifest", map[string]string{
+			"auth-keys-file": "a.txt",
+		}, "require --watch-only-manifest"},
+		{"override identity without manifest", map[string]string{
+			"override-identity": "true",
+		}, "require --watch-only-manifest"},
 	}
 
 	for _, tc := range tests {

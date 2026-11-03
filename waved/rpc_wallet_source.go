@@ -18,6 +18,7 @@ type preparedWalletCreate struct {
 	publicDescriptors []string
 	rootFingerprint   uint32
 	source            db.WalletKeySource
+	manifestHash      string
 
 	// zero wipes the seed or master key behind input.
 	zero func()
@@ -29,6 +30,30 @@ type preparedWalletCreate struct {
 // claimed.
 func validateInitWalletSource(req *waverpc.InitWalletRequest,
 	remoteSigner bool) error {
+
+	hasManifest := len(req.GetWatchOnlyManifest()) > 0
+	switch {
+	case hasManifest && !remoteSigner:
+		return errors.New("a watch-only manifest needs " +
+			"wallet.remotesigner")
+
+	case hasManifest && len(req.GetAuthKeys()) == 0:
+		return errors.New("a watch-only manifest needs auth_keys")
+
+	case hasManifest && (len(req.GetWatchOnlyBundle()) > 0 ||
+		len(req.GetMnemonic()) > 0 ||
+		len(req.GetSeedPassphrase()) > 0 ||
+		len(req.GetDescriptors()) > 0):
+		return errors.New("watch_only_manifest is mutually exclusive " +
+			"with every other creation input")
+
+	case hasManifest:
+		return nil
+
+	case len(req.GetAuthKeys()) > 0 || req.GetOverrideIdentity():
+		return errors.New("auth_keys and override_identity are only " +
+			"used with watch_only_manifest")
+	}
 
 	hasBundle := len(req.GetWatchOnlyBundle()) > 0
 	switch {
@@ -87,6 +112,12 @@ func prepareWalletCreateInput(req *waverpc.InitWalletRequest,
 	chainParams, err := networkToChainParams(network)
 	if err != nil {
 		return nil, err
+	}
+
+	// Manifest path: each fund slot from its own key, the
+	// authentication keys kept by the daemon.
+	if len(req.GetWatchOnlyManifest()) > 0 {
+		return prepareManifestCreate(req, chainParams)
 	}
 
 	// Watch-only path: the bundle's account public keys are the
@@ -279,4 +310,60 @@ func watchOnlyPublicDescriptors(bundle *walletdesc.WatchOnlyBundle,
 	}
 
 	return public, nil
+}
+
+// prepareManifestCreate turns a manifest and its authentication keys into
+// a split-signing creation input. A manifest replacing the identity family
+// needs override_identity.
+func prepareManifestCreate(req *waverpc.InitWalletRequest,
+	params *chaincfg.Params) (*preparedWalletCreate, error) {
+
+	birthday, err := BirthdayFromUnix(req.GetBirthdayUnix())
+	if err != nil {
+		return nil, err
+	}
+
+	manifest, err := walletdesc.ParseManifest(
+		req.GetWatchOnlyManifest(), params,
+	)
+	if err != nil {
+		return nil, err
+	}
+	err = manifest.CheckIdentity(req.GetOverrideIdentity(), params)
+	if err != nil {
+		return nil, err
+	}
+
+	auth, err := walletdesc.ParseAuthKeys(req.GetAuthKeys(), params)
+	if err != nil {
+		return nil, err
+	}
+	minimal, err := manifest.MinimalBundle(auth, params)
+	if err != nil {
+		auth.Zero()
+
+		return nil, err
+	}
+
+	onChain, err := manifest.OnChainDescriptor()
+	if err != nil {
+		auth.Zero()
+
+		return nil, err
+	}
+
+	return &preparedWalletCreate{
+		input: walletCreateInput{
+			watchOnlyMinimal:  minimal,
+			watchOnlyManifest: manifest,
+			birthday:          birthday,
+		},
+		publicDescriptors: []string{
+			onChain,
+		},
+		rootFingerprint: manifest.PrimaryFingerprint,
+		source:          db.WalletKeySourceWatchOnly,
+		manifestHash:    manifest.HashHex(),
+		zero:            auth.Zero,
+	}, nil
 }

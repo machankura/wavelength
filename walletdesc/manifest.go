@@ -814,3 +814,14 @@ func ApplyOverride(keys *AccountKeys, slot string, key *hdkeychain.ExtendedKey,
 
 	return fmt.Errorf("%w: no slot %s", ErrBundleIncomplete, slot)
 }
+
+// OnChainDescriptor returns the on-chain account's public descriptor with
+// its real origin, checksummed.
+func (m *Manifest) OnChainDescriptor() (string, error) {
+	return AddChecksum(
+		fmt.Sprintf(
+			"tr(%s/<0;1>/*)",
+			formatKeyWithOrigin(m.OnChain.Key, m.OnChain.Origin),
+		),
+	)
+}

@@ -568,6 +568,7 @@ func (r *RPCServer) InitWallet(ctx context.Context,
 		IdentityPubkey:  identityPubkey,
 		Descriptors:     created.publicDescriptors,
 		RootFingerprint: FormatFingerprint(created.rootFingerprint),
+		ManifestHash:    created.manifestHash,
 	}
 	if recoveryResult != nil {
 		recoveryResult.apply(resp)
@@ -764,6 +765,10 @@ type walletCreateInput struct {
 	// watchOnlyMinimal creates a split-signing wallet instead: fund keys
 	// on the remote signer, authentication keys kept by the daemon.
 	watchOnlyMinimal *walletdesc.MinimalBundle
+
+	// watchOnlyManifest, with the watchOnlyMinimal it produced, creates a
+	// wallet whose fund slots come from several keys.
+	watchOnlyManifest *walletdesc.Manifest
 
 	// accountKeys creates a wallet from account-level private keys that
 	// it signs with in process; it excludes every other input.

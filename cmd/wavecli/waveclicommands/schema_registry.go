@@ -148,87 +148,117 @@ func listOutputParams() []schemaParam {
 	}
 }
 
+// createSchemaParams returns the `create` verb's flags.
+func createSchemaParams() []schemaParam {
+	return []schemaParam{
+		{
+			Name: "password-stdin",
+			Type: "bool",
+			Description: "read one wallet " +
+				"password line from stdin",
+		},
+		{
+			Name: "wallet-password-file",
+			Type: "string",
+			Description: "path to file " +
+				"containing wallet password",
+		},
+		{
+			Name: "seed-passphrase-file",
+			Type: "string",
+			Description: "path to file " +
+				"containing optional aezeed " +
+				"passphrase",
+		},
+		{
+			Name: "print-mnemonic-json",
+			Type: "bool",
+			Description: "include the mnemonic " +
+				"in the JSON response on " +
+				"stdout (default: stderr only)",
+		},
+		{
+			Name: "recover",
+			Type: "bool",
+			Description: "recover from an " +
+				"existing " +
+				"mnemonic",
+		},
+		{
+			Name: "mnemonic-file",
+			Type: "string",
+			Description: "path to an existing " +
+				"24-word aezeed mnemonic",
+		},
+		{
+			Name: "recovery-window",
+			Type: "uint32",
+			Description: "key indexes to scan " +
+				"per " +
+				"recovery family",
+		},
+		{
+			Name: "descriptor-file",
+			Type: "string",
+			Description: "path to private " +
+				"output descriptors or " +
+				"account-level private " +
+				"keys to build the wallet " +
+				"from instead of a mnemonic",
+		},
+		{
+			Name: "watch-only-bundle-file",
+			Type: "string",
+			Description: "path to the remote " +
+				"signer's account public " +
+				"keys, for a wallet whose " +
+				"private keys stay on that " +
+				"signer",
+		},
+		{
+			Name: "watch-only-manifest",
+			Type: "string",
+			Description: "path to a key " +
+				"manifest assigning each " +
+				"fund slot its own public " +
+				"key; requires " +
+				"--auth-keys-file",
+		},
+		{
+			Name: "auth-keys-file",
+			Type: "string",
+			Description: "path to the " +
+				"authentication families' " +
+				"private keys, for " +
+				"--watch-only-manifest",
+		},
+		{
+			Name: "override-identity",
+			Type: "bool",
+			Description: "allow a manifest " +
+				"that replaces the identity " +
+				"family, which changes the " +
+				"wallet's Ark identity",
+		},
+		{
+			Name: "birthday",
+			Type: "string",
+			Description: "earliest date the " +
+				"descriptor or bundle keys " +
+				"may have received funds " +
+				"(RFC3339 or YYYY-MM-DD)",
+		},
+	}
+}
+
 // walletAdminMethodRegistry returns the admin-shape wallet verbs
 // (create, unlock) plus daemon introspection (getinfo).
 func walletAdminMethodRegistry() []schemaMethod {
 	return []schemaMethod{
 		{
-			Method:      "create",
-			Description: "Create a new wallet from a fresh seed",
-			Params: []schemaParam{
-				{
-					Name: "password-stdin",
-					Type: "bool",
-					Description: "read one wallet " +
-						"password line from stdin",
-				},
-				{
-					Name: "wallet-password-file",
-					Type: "string",
-					Description: "path to file " +
-						"containing wallet password",
-				},
-				{
-					Name: "seed-passphrase-file",
-					Type: "string",
-					Description: "path to file " +
-						"containing optional aezeed " +
-						"passphrase",
-				},
-				{
-					Name: "print-mnemonic-json",
-					Type: "bool",
-					Description: "include the mnemonic " +
-						"in the JSON response on " +
-						"stdout (default: stderr only)",
-				},
-				{
-					Name: "recover",
-					Type: "bool",
-					Description: "recover from an " +
-						"existing " +
-						"mnemonic",
-				},
-				{
-					Name: "mnemonic-file",
-					Type: "string",
-					Description: "path to an existing " +
-						"24-word aezeed mnemonic",
-				},
-				{
-					Name: "recovery-window",
-					Type: "uint32",
-					Description: "key indexes to scan " +
-						"per " +
-						"recovery family",
-				},
-				{
-					Name: "descriptor-file",
-					Type: "string",
-					Description: "path to private " +
-						"output descriptors or " +
-						"account-level private " +
-						"keys to build the wallet " +
-						"from instead of a mnemonic",
-				},
-				{
-					Name: "watch-only-bundle-file",
-					Type: "string",
-					Description: "path to the remote " +
-						"signer's account public " +
-						"keys, for a wallet whose " +
-						"private keys stay on that " +
-						"signer",
-				},
-				{
-					Name: "birthday",
-					Type: "string",
-					Description: "earliest date the " +
-						"descriptor or bundle keys " +
-						"may have received funds " +
-						"(RFC3339 or YYYY-MM-DD)",
-				},
-			},
+			Method:       "create",
+			Description:  "Create a new wallet from a fresh seed",
+			Params:       createSchemaParams(),
 			RequestType:  "CreateRequest",
 			ResponseType: "CreateResponse",
 			JSONInput:    false,

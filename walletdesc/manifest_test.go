@@ -3,6 +3,7 @@ package walletdesc
 import (
 	"encoding/json"
 	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/btcsuite/btcd/btcutil/v2/hdkeychain"
@@ -100,6 +101,19 @@ func TestManifest(t *testing.T) {
 		t, []string{"onchain", "42", "44", "202"}, m.Overrides(params),
 	)
 	require.NoError(t, m.CheckIdentity(false, params))
+
+	// The on-chain descriptor names the overriding key's real origin.
+	onChain, err := m.OnChainDescriptor()
+	require.NoError(t, err)
+	require.Contains(
+		t, onChain, FormatFingerprint(m.OnChain.Origin.Fingerprint),
+	)
+	require.Contains(t, onChain, "/86h/0h/3h]")
+	body, sum, ok := strings.Cut(onChain, "#")
+	require.True(t, ok)
+	want, err := Checksum(body)
+	require.NoError(t, err)
+	require.Equal(t, want, sum)
 
 	// Reformatting does not change the hash.
 	var pretty map[string]any

@@ -49,7 +49,10 @@ func (s *Service) create(ctx context.Context,
 	mnemonic := req.GetMnemonic()
 	descriptors := req.GetDescriptors()
 	bundle := req.GetWatchOnlyBundle()
-	if len(mnemonic) == 0 && len(descriptors) == 0 && len(bundle) == 0 {
+	manifest := req.GetWatchOnlyManifest()
+	if len(mnemonic) == 0 && len(descriptors) == 0 && len(bundle) == 0 &&
+		len(manifest) == 0 {
+
 		// Fresh wallet: generate a seed and echo the mnemonic back so
 		// the caller can record it. Recording the mnemonic is the
 		// caller's responsibility; once Create returns, the wallet is
@@ -76,6 +79,10 @@ func (s *Service) create(ctx context.Context,
 			Descriptors:     descriptors,
 			BirthdayUnix:    req.GetBirthdayUnix(),
 			WatchOnlyBundle: bundle,
+
+			WatchOnlyManifest: manifest,
+			AuthKeys:          req.GetAuthKeys(),
+			OverrideIdentity:  req.GetOverrideIdentity(),
 		},
 	)
 	if err != nil {
@@ -94,6 +101,7 @@ func (s *Service) create(ctx context.Context,
 		RecoveredOorEvents:         initResp.GetRecoveredOorEvents(),
 		Descriptors:                initResp.GetDescriptors(),
 		RootFingerprint:            initResp.GetRootFingerprint(),
+		ManifestHash:               initResp.GetManifestHash(),
 	}, nil
 }
 

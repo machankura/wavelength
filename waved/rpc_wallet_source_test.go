@@ -1,6 +1,7 @@
 package waved
 
 import (
+	"bytes"
 	"fmt"
 	"strings"
 	"testing"
@@ -123,6 +124,26 @@ func TestValidateInitWalletSource(t *testing.T) {
 				"tr(x)",
 			},
 		}, true, "mutually exclusive"},
+		{"manifest", &waverpc.InitWalletRequest{
+			WatchOnlyManifest: []byte("{}"),
+			AuthKeys:          []byte("k"),
+			OverrideIdentity:  true,
+		}, true, ""},
+		{"manifest without signer", &waverpc.InitWalletRequest{
+			WatchOnlyManifest: []byte("{}"),
+			AuthKeys:          []byte("k"),
+		}, false, "needs wallet.remotesigner"},
+		{"manifest without auth keys", &waverpc.InitWalletRequest{
+			WatchOnlyManifest: []byte("{}"),
+		}, true, "needs auth_keys"},
+		{"manifest and bundle", &waverpc.InitWalletRequest{
+			WatchOnlyManifest: []byte("{}"),
+			AuthKeys:          []byte("k"),
+			WatchOnlyBundle:   bundle,
+		}, true, "mutually exclusive"},
+		{"auth keys without manifest", &waverpc.InitWalletRequest{
+			WatchOnlyBundle: bundle, AuthKeys: []byte("k"),
+		}, true, "only used with watch_only_manifest"},
 	}
 
 	for _, tc := range tests {
@@ -516,4 +537,109 @@ func TestPrepareWalletCreateInputMinimalBundle(t *testing.T) {
 	prepared.zero()
 	local := prepared.input.watchOnlyMinimal.Local.Accounts[0].Key
 	require.NotEqual(t, derive(1017, 1, 21).String(), local.String())
+}
+
+// TestPrepareWalletCreateInputManifest checks a manifest creates a
+// split-signing wallet whose overridden slots hold the overriding keys, and
+// that replacing the identity family needs override_identity.
+func TestPrepareWalletCreateInputManifest(t *testing.T) {
+	t.Parallel()
+
+	params := &chaincfg.RegressionNetParams
+	_, root := compatibleTestMnemonic(t)
+
+	// A second root supplies one fund family, or the identity family.
+	other, err := hdkeychain.NewMaster(
+		bytes.Repeat(
+			[]byte{7}, 32,
+		),
+		params,
+	)
+	require.NoError(t, err)
+	otherFP, err := walletdesc.Fingerprint(other)
+	require.NoError(t, err)
+
+	overridden := func(family uint32) *walletdesc.AccountKeys {
+		keys, err := walletdesc.BtcwalletAccountKeys(root, params)
+		require.NoError(t, err)
+
+		key := other
+		var path []uint32
+		for _, step := range []uint32{1017, 1, family} {
+			key, err = key.Derive(
+				hdkeychain.HardenedKeyStart + step,
+			)
+			require.NoError(t, err)
+			path = append(path, hdkeychain.HardenedKeyStart+step)
+		}
+		for i, acct := range keys.Accounts {
+			if acct.Purpose == walletdesc.PurposeKeyFamily &&
+				acct.Account == family {
+
+				keys.Accounts[i].Key = key
+				keys.Accounts[i].Origin = &walletdesc.KeyOrigin{
+					Fingerprint: otherFP, Path: path,
+				}
+			}
+		}
+
+		return keys
+	}
+	request := func(keys *walletdesc.AccountKeys,
+		overrideIdentity bool) *waverpc.InitWalletRequest {
+
+		manifest, err := walletdesc.FormatManifest(keys, params)
+		require.NoError(t, err)
+		auth, err := walletdesc.FormatAuthKeys(keys)
+		require.NoError(t, err)
+
+		return &waverpc.InitWalletRequest{
+			WatchOnlyManifest: manifest,
+			AuthKeys:          auth,
+			OverrideIdentity:  overrideIdentity,
+			WalletPassword:    []byte(testDescriptorPassword),
+		}
+	}
+
+	keys := overridden(42)
+	defer keys.Zero()
+	prepared, err := prepareWalletCreateInput(
+		request(keys, false),
+		"regtest",
+	)
+	require.NoError(t, err)
+	defer prepared.zero()
+
+	require.Equal(t, db.WalletKeySourceWatchOnly, prepared.source)
+	require.NotNil(t, prepared.input.watchOnlyManifest)
+	require.Equal(
+		t, prepared.input.watchOnlyManifest.HashHex(),
+		prepared.manifestHash,
+	)
+	require.Len(t, prepared.publicDescriptors, 1)
+
+	var found bool
+	for _, acct := range prepared.input.watchOnlyMinimal.Public.Accounts {
+		if acct.Purpose != walletdesc.PurposeKeyFamily ||
+			acct.Account != 42 {
+
+			continue
+		}
+		found = true
+		require.Equal(t, otherFP, acct.Origin.Fingerprint)
+	}
+	require.True(t, found)
+
+	// Replacing the identity family is refused unless asked for.
+	identity := overridden(6)
+	defer identity.Zero()
+	_, err = prepareWalletCreateInput(request(identity, false), "regtest")
+	require.ErrorIs(t, err, walletdesc.ErrIdentityOverride)
+
+	allowed, err := prepareWalletCreateInput(
+		request(identity, true),
+		"regtest",
+	)
+	require.NoError(t, err)
+	allowed.zero()
 }
