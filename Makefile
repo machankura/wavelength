@@ -290,19 +290,23 @@ lint-native: #? Deprecated alias for lint-local
 	@$(call print, "lint-native is deprecated; use lint-local instead.")
 	@$(MAKE) lint-local
 
+# The ast-grep binary. Not sg: that name is deprecated upstream, and on most
+# Linux hosts it is shadow-utils' switch-group command.
+AST_GREP ?= ast-grep
+
 # Globs to exclude generated files from ast-grep.
 AST_GREP_EXCLUDE := --globs '!**/*.pb.go' --globs '!**/*.pb.gw.go' --globs '!**/*.pb.json.go' --globs '!**/db/sqlc/*.go'
 
 # Optional directory/package filter for ast-grep (e.g., make ast-lint pkg=wallet).
 AST_GREP_PATH := $(if $(pkg),$(pkg),.)
 
-ast-lint: #? Run ast-grep style checks (requires ast-grep/sg installed). Use pkg=<dir> to focus on a specific directory.
+ast-lint: #? Run ast-grep style checks (requires ast-grep installed). Use pkg=<dir> to focus on a specific directory.
 	@$(call print, "Running ast-grep style checks.")
-	sg scan $(AST_GREP_EXCLUDE) $(AST_GREP_PATH)
+	$(AST_GREP) scan $(AST_GREP_EXCLUDE) $(AST_GREP_PATH)
 
-ast-grep-fix: #? Auto-fix ast-grep style issues (requires ast-grep/sg installed). Use pkg=<dir> to focus on a specific directory.
+ast-grep-fix: #? Auto-fix ast-grep style issues (requires ast-grep installed). Use pkg=<dir> to focus on a specific directory.
 	@$(call print, "Auto-fixing ast-grep style issues.")
-	sg scan --update-all $(AST_GREP_EXCLUDE) $(AST_GREP_PATH)
+	$(AST_GREP) scan --update-all $(AST_GREP_EXCLUDE) $(AST_GREP_PATH)
 
 # The actorblock analyzer is built into custom-gcl as a plugin, which applies
 # the baseline per package. The standalone binary additionally sees the whole
