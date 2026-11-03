@@ -46,6 +46,7 @@ unchanged).
 | `exit status --outpoint TXID:VOUT` | `wavewalletrpc.ExitStatus` | Query an exit/unroll job's status (proxies GetUnrollStatus) |
 | `exit summary` | `wavewalletrpc.ExitSummary` | Aggregate totals across all in-progress exits |
 | `exit plan --outpoint ...` | `wavewalletrpc.GetExitPlan` | Preview backing-wallet funding readiness for one or more exits |
+| `export-watchonly --output FILE [--minimal]` | `waverpc.ExportWatchOnlyBundle` | Write the full-key wallet's watch-only bundle, authorized by `--mnemonic-file` or `--descriptor-file`; never over an existing file, owner-only when minimal |
 | `wallet-sweep --destination ADDR` | `wavewalletrpc.SweepWallet` | Preview, or with `--broadcast --yes` publish, a sweep of confirmed backing-wallet UTXOs (boarding outputs excluded; see `ark sweep`) |
 
 ### Daemon introspection

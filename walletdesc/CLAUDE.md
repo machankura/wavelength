@@ -52,7 +52,9 @@ SDK and tests share one set of rules.
   slots; `Hash` covers a canonical encoding; `CheckIdentity` refuses a
   family-6 override unless allowed; `MinimalBundle` joins it with the
   authentication keys (`ParseAuthKeys`) for import. `FormatManifest` and
-  `FormatAuthKeys` are the export side.
+  `FormatAuthKeys` are the export side. `MatchKeys` checks restored keys
+  against a manifest slot by slot (`ErrRestoreMismatch` names the slots
+  whose key source is missing or wrong).
 - `Checksum` / `AddChecksum` — the BIP380 checksum.
 - Sentinel errors (`ErrWatchOnlyDescriptor`, `ErrNotRootKey`,
   `ErrUnsupportedPath`, `ErrLegacyDerivationMismatch`, ...) — every `Parse`

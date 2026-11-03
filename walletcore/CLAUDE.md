@@ -56,6 +56,11 @@ btcwallet.BtcWallet regardless of the underlying chain source.
   else to the remote signer. `guardedKeyRing` refuses `ErrFamilyNotSupplied`
   for any family outside the registry or not supplied, and an open whose
   stored bundle misses a registry family fails `ErrBundleOutdated`.
+- `RemoteSignerConfig.Inbound` — an inbound connection the signer dialed
+  into (lnd's `InboundConnection`), used instead of dialing out. The
+  daemon owns it; the wallet borrows it (`borrowedConn`) and never stops
+  it, because lnd's coordinator cannot restart. `VerifyRemoteSigner` waits
+  up to the connection timeout for the signer before probing.
 - `ProbeSigner` / `SlotProbe` — on every start of a signer-backed wallet,
   the signer must sign a fresh tagged challenge with each fund family's
   index-0 key and a key-path spend of a fabricated output on the on-chain

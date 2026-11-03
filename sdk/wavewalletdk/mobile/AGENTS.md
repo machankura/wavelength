@@ -25,6 +25,10 @@ application-facing wallet API.
   counterpart of `StartExternalSeedWallet`, sharing its singleton guard and
   nested-config envelope; `ListWalletDescriptors` exports the active wallet's
   descriptors.
+- `StartWatchOnlyWallet(reqJSON []byte) ([]byte, error)` — the watch-only
+  counterpart, with the signer named by the `remote_signer_*` config
+  fields and the bundle, manifest and authentication keys as text. Not
+  exposed to WASM, which cannot dial a signer.
 - `Subscription` — pull-based handle (`Next`/`Close`) over a wallet activity
   stream, replacing the callback interfaces gomobile would otherwise require.
 - `mobileConfig` — unexported flat JSON config decoded by `parseConfig`/

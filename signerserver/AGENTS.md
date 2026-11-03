@@ -18,6 +18,11 @@ watch-only node) uses it exactly as it would an lnd signer.
   plus `ListAccounts` so the account xpubs can be read in lnd's format.
   Every other call is unimplemented. `Serve`, `Stop` (wipes the keys),
   `Addr`.
+- `WatchOnlyConfig` / `Server.ConnectWatchOnly` — the reversed
+  connection: the signer dials a daemon run with
+  `wallet.remotesigner.allowinbound` and answers its requests over lnd's
+  coordinator stream (`rpcwallet.OutboundClient`), reconnecting with
+  backoff until `Stop`. An empty `Config.ListenAddr` serves no listener.
 - `CreateStore` / `OpenStore` — the signer's key store, `signer.db`, a
   bbolt wallet database holding the `accountsigner` keystore encrypted
   under the signer's password.

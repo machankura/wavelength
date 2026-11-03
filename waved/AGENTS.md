@@ -147,6 +147,16 @@ For field-level detail, use `go doc github.com/lightninglabs/wavelength/waved.<S
   (`prepareManifestCreate`): fund slots from several keys, imported
   through the split-signing path; a family-6 override needs
   `override_identity`. InitWallet and `GetInfo` report the manifest hash.
+  `wallet.remotesigner.allowinbound` reverses the connection: the daemon
+  owns an `rpcwallet.InboundConnection` for its whole life, serves
+  `watchonlyrpc.WatchOnly/SignCoordinatorStreams` on the RPC listener
+  behind `remotesigner:generate`, and auto-unlocks only once the listener
+  serves (`autoUnlockAfterListen`), since the signer cannot connect
+  earlier. Its `Stop` is deferred after the graceful gRPC stop so it runs
+  first; a graceful stop would otherwise wait on the signer's stream.
+- `ExportWatchOnlyBundle` renders a full-key wallet's full or minimal
+  bundle from resupplied seed material checked like private descriptor
+  export, and refuses a watch-only wallet.
 - `WaitForWalletServicesReady` resolves after wallet-dependent actors and
   mailbox ingress start, or with the first error before that boundary.
   `DaemonReady` remains the later full-startup signal.

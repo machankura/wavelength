@@ -152,6 +152,45 @@ identity family's key, and the database password is derived with HKDF from
 that family's account private key under a separate info string, so a master
 key and its account keys open different databases.
 
+### Watch-only wallets with a remote signer
+
+`StartWatchOnlyWallet` opens a wallet whose fund keys live on a remote
+signer such as `wavesigner`. `Config.RemoteSigner` names the signer, and the
+request carries the signer's export: a full or minimal `Bundle`, or a
+`Manifest` with its `AuthKeys` when fund slots come from several keys
+(`OverrideIdentity` allows a manifest that replaces the identity family).
+A watch-only wallet has no secret to derive a database password from, so
+the host supplies `WalletPassword` and keeps it with the wallet.
+
+```go
+cfg.DataDir = finalWalletDataDir
+cfg.RemoteSigner = &wavewalletdk.RemoteSignerConfig{
+	RPCHost:      "signer.example:10019",
+	MacaroonPath: signerMacaroonPath,
+	TLSCertPath:  signerCertPath,
+}
+
+client, opened, err := wavewalletdk.StartWatchOnlyWallet(
+	ctx, cfg, wavewalletdk.WatchOnlyWalletRequest{
+		Manifest:       manifest,
+		AuthKeys:       authKeys,
+		WalletPassword: walletPassword,
+	},
+)
+if err != nil {
+	panic(err)
+}
+defer client.Stop()
+
+fmt.Println("manifest:", opened.ManifestHash)
+```
+
+The request is validated and its identity pinned before the daemon starts,
+and every start probes each fund slot on the signer. `CreateWallet` also
+takes the same watch-only fields, `Info.ManifestHash` reports the manifest
+a running wallet was created from, and `sdk/ark` offers
+`InitWatchOnlyWallet`. Browser builds cannot dial a signer.
+
 ### Externally derived wallet entropy
 
 `StartExternalSeedWallet` imports or unlocks a self-managed wallet from exactly

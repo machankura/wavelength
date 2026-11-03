@@ -179,6 +179,38 @@ PascalCase `ListWalletDescriptorsRequest` and is also exposed to WASM as
 `listWalletDescriptors`. Descriptors with private keys are as sensitive as a
 seed: keep them in the platform keystore and redact them from logs.
 
+### Watch-only wallets
+
+`StartWatchOnlyWallet` opens a wallet whose fund keys live on a remote
+signer. The nested config must name the signer, and the bundle, manifest
+and authentication keys are passed as text:
+
+```json
+{
+  "config": {
+    "data_dir": "/data/user/0/<app>/files/wavelength/wallets/<id>",
+    "network": "signet",
+    "wallet_type": "lwwallet",
+    "remote_signer_rpc_host": "signer.example:10019",
+    "remote_signer_macaroon_path": "/.../signer.macaroon",
+    "remote_signer_tls_cert_path": "/.../tls.cert",
+    "remote_signer_request_timeout_seconds": 10
+  },
+  "manifest": "{\"version\":1,...}",
+  "auth_keys": "[fp/1017h/1h/21h]tprv.../0/*\n...",
+  "override_identity": false,
+  "wallet_password": "base64 password",
+  "birthday_unix": 1767225600
+}
+```
+
+Use `"bundle"` instead of `"manifest"` and `"auth_keys"` for a signer's full
+or minimal bundle. The response is the PascalCase
+`WatchOnlyWalletOpenResult`, including `ManifestHash`. A minimal bundle and
+the authentication keys hold private keys, and the wallet password
+protects them on disk: keep all three in the platform keystore. The verb is
+not exposed to WASM, which cannot dial a signer.
+
 ### Streaming
 
 ```go

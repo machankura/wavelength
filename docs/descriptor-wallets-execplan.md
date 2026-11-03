@@ -260,10 +260,34 @@ VTXOs.
   generated `Descriptor()` method; there is no cursor, so the list is bounded
   by wallet size; VTXO entries report exit delay 0 (unknown) because the
   delay sits in the policy template, which is not decoded here.
-- [ ] Not started: signer-side spending policy, inbound signer
-  connections, bundle and manifest support in the SDK and mobile bridges,
-  `wavecli` export against a full-key daemon, manifests for in-process
-  account-key wallets, and a completed Ark round against a real operator.
+- [x] (2026-11-03) Follow-ups after W5:
+  - **Restore check:** `Manifest.MatchKeys`, plus `wavesigner create
+    --manifest`, refuses a key store that does not fill every slot with the
+    manifest's key, and names the missing sources.
+  - **Export from a full-key daemon:** the `ExportWatchOnlyBundle` RPC and
+    `wavecli export-watchonly [--minimal]`. They need resupplied seed
+    material, checked as for private descriptor export.
+  - **SDK and mobile:** `wavewalletdk.StartWatchOnlyWallet` with
+    `Config.RemoteSigner`, the mobile `StartWatchOnlyWallet` with
+    `remote_signer_*` config fields, and `sdk/ark.InitWatchOnlyWallet`.
+  - **Inbound signers:** `wallet.remotesigner.allowinbound` serves lnd's
+    `SignCoordinatorStreams` behind `remotesigner:generate`, and
+    `signerserver.ConnectWatchOnly` with `wavesigner run --watchonly-host`
+    dials it. `TestWaveSignerInboundDaemon` is the acceptance test.
+  - **Deviations:**
+    - A restore from the primary seed alone, without the manifest, still
+      cannot be detected. Nothing the seed derives records the overrides.
+    - The SDK watch-only path is unit-tested against a stub daemon, like
+      the descriptor path. No systest drives the SDK.
+    - The downstream wavelength-wdk bindings do not expose the new verbs.
+- [ ] Not started:
+  - signer-side spending policy;
+  - manifests for in-process account-key wallets (a local `wavesigner`
+    covers them on native platforms);
+  - the ast-grep rule against logging descriptors, which needs ast-grep
+    installed to verify;
+  - wavelength-wdk bindings for watch-only wallets;
+  - a completed Ark round against a real operator.
 
 
 ## Surprises & Discoveries
@@ -773,6 +797,15 @@ VTXOs.
   users compare, while the authentication keys are secret. Keeping them in
   separate files lets the manifest be copied freely and the keys be written
   owner-only.
+  Date/Author: 2026-11-03, implementer.
+
+- Decision: an inbound signer connection is owned by the daemon, not the
+  wallet. An existing wallet is auto-unlocked only after the RPC listener
+  serves.
+  Rationale: lnd's `SignCoordinator` cannot run again once stopped, so a
+  wallet that stopped it on a failed start would leave the daemon unable to
+  sign until restart. The signer can only connect once the listener is up,
+  and the old order unlocked before it, so every start would time out.
   Date/Author: 2026-11-03, implementer.
 
 - Decision: Protobuf changes add new fields rather than wrapping the existing
@@ -2250,4 +2283,10 @@ restore check, and no loud failure for a seed-only restore. Added two
 findings to Surprises & Discoveries and the separate manifest and
 auth-keys decision to the Decision Log, and listed the work still not
 started.
+
+Revision note (2026-11-03, follow-ups): implemented the work left after
+W5 that this host can build: the manifest restore check, daemon-side
+bundle export, SDK and mobile watch-only wallets, and inbound signer
+connections. Recorded each in Progress with its deviations, added the
+inbound-connection ownership decision, and listed what remains.
 

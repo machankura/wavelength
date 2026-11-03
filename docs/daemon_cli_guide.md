@@ -171,8 +171,9 @@ How it behaves:
   the signer. A bundle without a configured signer is refused too.
 - The wallet password encrypts the bundle's public keys at rest, and
   `unlock` and `--wallet.password_file` work as for any self-managed wallet.
-- Every start has the signer sign a fresh challenge with the identity key
-  and checks it against the identity the bundle implies. A daemon pointed at
+- Every start has the signer sign a fresh challenge with each fund
+  family's first key and spend a fabricated output on the on-chain account,
+  and checks every signature against the bundle's keys. A daemon pointed at
   the wrong signer refuses to start instead of failing at its first spend.
 - `--wallet.remotesigner.timeout` bounds connecting (30 s by default) and
   `--wallet.remotesigner.requesttimeout` each request (10 s by default).
@@ -181,6 +182,41 @@ How it behaves:
   recovery, since indexer queries carry proof signatures.
 - Remote signing needs a native build: the browser cannot open the gRPC
   connection, so the wasm runtime refuses it.
+
+A wallet that holds its own keys can write its bundle before they move to
+a signer. The daemon checks the resupplied mnemonic, root descriptors or
+account keys against the open wallet, as for private descriptor export,
+and writes the file only if it does not exist yet (owner-only for
+`--minimal`):
+
+```bash
+wavecli export-watchonly --mnemonic-file wallet.mnemonic \
+  --output signer.bundle
+wavecli export-watchonly --mnemonic-file wallet.mnemonic --minimal \
+  --output signer.minimal
+```
+
+**When the signer dials the daemon.** With
+`--wallet.remotesigner.allowinbound` the connection is reversed, for a
+signer behind NAT or a firewall: the signer opens a stream to the daemon's
+RPC port, and `rpchost`, `macaroonpath` and `tlscertpath` stay empty. The
+signer authenticates with a daemon macaroon that grants only
+`remotesigner:generate`, and pins the daemon's `tls.cert`:
+
+```bash
+wavecli bakemacaroon remotesigner:generate \
+  --save-to remotesigner.macaroon
+wavesigner --network=regtest run --watchonly-host=daemon.example:10029 \
+  --watchonly-macaroon=remotesigner.macaroon \
+  --watchonly-tlscert=/path/to/daemon/tls.cert
+```
+
+In this mode the daemon unlocks an existing wallet only after its RPC
+listener is up, and each start waits up to
+`--wallet.remotesigner.timeout` for the signer to connect before probing
+it. The signer reconnects with backoff whenever the stream drops. Anyone
+holding that macaroon can stand in as the wallet's signer, so give it to
+the signer only.
 
 What this protects: someone who copies the data directory and the wallet
 password gets the public keys (and, with a minimal bundle, the two
@@ -225,6 +261,9 @@ wavesigner --network=regtest run --listen=0.0.0.0:10019 \
 - The signer signs only inside its own accounts (BIP86 and BIP84 account 0
   and the key families of its network). It also answers `ListAccounts`, so
   `lncli wallet accounts list` pointed at it prints its account xpubs.
+- `run --watchonly-host` dials a daemon run with
+  `--wallet.remotesigner.allowinbound` instead of listening (see above);
+  give `--listen` as well to do both.
 
 #### Fund slots from other keys (manifests)
 
@@ -263,6 +302,13 @@ wavecli create --watch-only-manifest wallet.manifest \
   root, fails exactly the overridden slots.
 - `wavecli create` and `wavecli getinfo` print `manifest_hash`. Use it to
   check that a backup matches the running wallet.
+
+**Restore.** Run `wavesigner create` with the primary root, an
+`--override` for every overridden slot, and `--manifest wallet.manifest`.
+The signer refuses a key store that does not fill every slot with the key
+the manifest records, and it names the slots whose source is missing. A
+restore from the primary root alone fails for exactly the overridden
+slots. Then create the daemon wallet from the same manifest.
 
 **Backup.** The primary mnemonic alone no longer restores the wallet. To
 restore, you need the manifest, every key source it names, and the primary

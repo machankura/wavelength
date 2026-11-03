@@ -40,6 +40,14 @@ For field-level detail, use `go doc github.com/lightninglabs/wavelength/sdk/wave
   over the master private key and chain code with info
   `wavewalletdk:descriptor:dbpw:v1` (golden-vector tested); the derived
   identity is always checked against the opened wallet.
+- `WatchOnlyWalletRequest` / `WatchOnlyWalletOpenResult` /
+  `StartWatchOnlyWallet` / `StartWatchOnlyWalletWithContexts` — a wallet
+  whose fund keys live on `Config.RemoteSigner` (`RemoteSignerConfig`),
+  created from a signer's bundle or from a manifest with its authentication
+  keys. The identity is pinned from the request before the daemon starts;
+  the host supplies the database password, since a watch-only wallet has
+  no secret to derive one from. `CreateWalletRequest` carries the same
+  watch-only fields, and `Info`/`CreateWalletResult` the manifest hash.
 - `ListWalletDescriptorsRequest` / `ListWalletDescriptorsResult` /
   `Client.ListWalletDescriptors` — public descriptor export, or private export
   authorized by the resupplied mnemonic or root descriptors.
