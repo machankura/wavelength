@@ -484,6 +484,7 @@ build: #? Build debug binaries and place in project directory
 	$(GOBUILD) -trimpath -tags="$(DEV_TAGS)" $(DEV_GCFLAGS) $(DEV_LDFLAGS) -o . ./cmd/merge-sql-schemas
 	$(GOBUILD) -trimpath -tags="$(DEV_TAGS)" $(DEV_GCFLAGS) $(DEV_LDFLAGS) -o ./bin/waved ./cmd/waved
 	$(GOBUILD) -trimpath -tags="$(DEV_TAGS)" $(DEV_GCFLAGS) $(DEV_LDFLAGS) -o ./bin/wavecli ./cmd/wavecli
+	$(GOBUILD) -trimpath -tags="$(DEV_TAGS)" $(DEV_GCFLAGS) $(DEV_LDFLAGS) -o ./bin/wavesigner ./cmd/wavesigner
 
 build-swapruntime: #? Build debug binaries with SwapClientService enabled
 	@$(call print, "Building debug binaries with swapruntime.")
@@ -548,6 +549,7 @@ install: #? Build and install binaries to GOPATH/bin
 	$(GOINSTALL) -trimpath -tags="$(DEV_TAGS)" $(DEV_LDFLAGS) ./cmd/merge-sql-schemas
 	$(GOINSTALL) -trimpath -tags="$(DEV_TAGS)" $(DEV_LDFLAGS) ./cmd/waved
 	$(GOINSTALL) -trimpath -tags="$(DEV_TAGS)" $(DEV_LDFLAGS) ./cmd/wavecli
+	$(GOINSTALL) -trimpath -tags="$(DEV_TAGS)" $(DEV_LDFLAGS) ./cmd/wavesigner
 
 install-swapruntime: #? Install binaries with SwapClientService enabled
 	@$(call print, "Installing binaries with swapruntime.")

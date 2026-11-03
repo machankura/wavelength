@@ -18,6 +18,15 @@ watch-only node) uses it exactly as it would an lnd signer.
   plus `ListAccounts` so the account xpubs can be read in lnd's format.
   Every other call is unimplemented. `Serve`, `Stop` (wipes the keys),
   `Addr`.
+- `CreateStore` / `OpenStore` — the signer's key store, `signer.db`, a
+  bbolt wallet database holding the `accountsigner` keystore encrypted
+  under the signer's password.
+- `KeysFromDescriptors` / `KeysFromMnemonic` — account keys from
+  master-key descriptors (as btcwallet would hold them), account-level
+  keys, or a Wavelength aezeed mnemonic (entropy padded to 32 bytes, the
+  Wavelength seed; an lnd wallet of the same mnemonic has other keys).
+- `WriteBundle` — the full or minimal export; a minimal bundle is written
+  owner-only and never over a file others can read.
 
 ## Relationships
 
