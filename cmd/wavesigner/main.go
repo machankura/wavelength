@@ -145,9 +145,11 @@ func (o *options) password() ([]byte, error) {
 // newCreateCmd builds `wavesigner create`.
 func newCreateCmd(opts *options) *cobra.Command {
 	var (
-		descriptorFile string
-		mnemonicFile   string
-		passphraseFile string
+		descriptorFile   string
+		mnemonicFile     string
+		passphraseFile   string
+		overrides        []string
+		overrideIdentity bool
 	)
 	cmd := &cobra.Command{
 		Use:   "create",
@@ -183,6 +185,13 @@ func newCreateCmd(opts *options) *cobra.Command {
 			}
 			defer keys.Zero()
 
+			err = applyOverrides(
+				keys, overrides, overrideIdentity, params,
+			)
+			if err != nil {
+				return err
+			}
+
 			err = signerserver.CreateStore(
 				opts.networkDir(), password, keys,
 			)
@@ -211,8 +220,65 @@ func newCreateCmd(opts *options) *cobra.Command {
 		"file holding a Wavelength 24-word aezeed mnemonic")
 	cmd.Flags().StringVar(&passphraseFile, "seed-passphrase-file", "",
 		"file holding the mnemonic's optional aezeed passphrase")
+	cmd.Flags().StringArrayVar(&overrides, "override", nil,
+		"SLOT=FILE: fill a fund slot (onchain, 6, 42, 44, 45 or "+
+			"202) with the key in FILE, either "+
+			"[fingerprint/path]XPRV or a master XPRV/path; "+
+			"repeatable")
+	cmd.Flags().BoolVar(&overrideIdentity, "override-identity", false,
+		"allow --override 6, which gives the wallet a different "+
+			"identity, mailbox and swap key")
 
 	return cmd
+}
+
+// applyOverrides fills the slots named by --override flags and checks the
+// result still forms a valid manifest.
+func applyOverrides(keys *walletdesc.AccountKeys, overrides []string,
+	overrideIdentity bool, params *chaincfg.Params) error {
+
+	for _, override := range overrides {
+		slot, file, ok := strings.Cut(override, "=")
+		if !ok {
+			return fmt.Errorf("--override %q is not SLOT=FILE",
+				override)
+		}
+
+		// The path is explicitly provided by the operator.
+		data, err := os.ReadFile(file) //nolint:gosec // G304
+		if err != nil {
+			return err
+		}
+		key, origin, err := walletdesc.ParseKeySource(
+			string(data), params,
+		)
+		clear(data)
+		if err != nil {
+			return fmt.Errorf("--override %s: %w", slot, err)
+		}
+
+		err = walletdesc.ApplyOverride(keys, slot, key, origin)
+		if err != nil {
+			key.Zero()
+
+			return err
+		}
+	}
+
+	if len(overrides) == 0 {
+		return nil
+	}
+
+	text, err := walletdesc.FormatManifest(keys, params)
+	if err != nil {
+		return err
+	}
+	manifest, err := walletdesc.ParseManifest(text, params)
+	if err != nil {
+		return err
+	}
+
+	return manifest.CheckIdentity(overrideIdentity, params)
 }
 
 // readKeys reads the key material named by create's flags.
@@ -350,8 +416,10 @@ func newRunCmd(opts *options) *cobra.Command {
 // newExportCmd builds `wavesigner export-watchonly`.
 func newExportCmd(opts *options) *cobra.Command {
 	var (
-		output  string
-		minimal bool
+		output      string
+		minimal     bool
+		manifestOut string
+		authKeysOut string
 	)
 	cmd := &cobra.Command{
 		Use:   "export-watchonly",
@@ -367,8 +435,20 @@ func newExportCmd(opts *options) *cobra.Command {
 			"owner-only.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			if output == "" {
-				return errors.New("--output is required")
+			manifestMode := manifestOut != "" || authKeysOut != ""
+			switch {
+			case manifestMode && (manifestOut == "" ||
+				authKeysOut == ""):
+				return errors.New("--manifest-out and " +
+					"--auth-keys-out go together")
+
+			case manifestMode && (output != "" || minimal):
+				return errors.New("a manifest export takes " +
+					"no --output or --minimal")
+
+			case !manifestMode && output == "":
+				return errors.New("--output or " +
+					"--manifest-out is required")
 			}
 
 			params, err := opts.params()
@@ -387,6 +467,23 @@ func newExportCmd(opts *options) *cobra.Command {
 				return err
 			}
 			defer keys.Zero()
+
+			if manifestMode {
+				err := signerserver.WriteManifest(
+					manifestOut, authKeysOut, keys, params,
+				)
+				if err != nil {
+					return err
+				}
+
+				_, _ = fmt.Fprintf(
+					cmd.OutOrStdout(),
+					"wrote %s and %s\n", manifestOut,
+					authKeysOut,
+				)
+
+				return nil
+			}
 
 			if minimal {
 				_, _ = fmt.Fprintln(
@@ -414,6 +511,12 @@ func newExportCmd(opts *options) *cobra.Command {
 	cmd.Flags().StringVar(&output, "output", "", "bundle file to write")
 	cmd.Flags().BoolVar(&minimal, "minimal", false,
 		"write a minimal bundle for split signing")
+	cmd.Flags().StringVar(&manifestOut, "manifest-out", "",
+		"write the wallet manifest here (needed when slots are "+
+			"overridden; public)")
+	cmd.Flags().StringVar(&authKeysOut, "auth-keys-out", "",
+		"write the authentication keys here, with --manifest-out "+
+			"(private, written owner-only)")
 
 	return cmd
 }

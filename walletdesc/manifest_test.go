@@ -289,3 +289,58 @@ func TestManifestRefusals(t *testing.T) {
 	_, err = m.MinimalBundle(otherAuth, params)
 	require.ErrorIs(t, err, ErrMixedFingerprints)
 }
+
+// TestParseKeySource checks both key source forms give the slot key and
+// its origin, and refuses public keys and non-hardened paths.
+func TestParseKeySource(t *testing.T) {
+	t.Parallel()
+
+	params := &chaincfg.RegressionNetParams
+	root := testSourceRoot(t, 60)
+	fp, err := Fingerprint(root)
+	require.NoError(t, err)
+
+	want := root
+	for _, step := range []uint32{9000, 7} {
+		want, err = want.Derive(hardened(step))
+		require.NoError(t, err)
+	}
+	wantOrigin := KeyOrigin{
+		Fingerprint: fp, Path: []uint32{
+			hardened(9000),
+			hardened(7),
+		},
+	}
+
+	key, origin, err := ParseKeySource(root.String()+"/9000h/7'", params)
+	require.NoError(t, err)
+	require.Equal(t, want.String(), key.String())
+	require.Equal(t, wantOrigin, origin)
+
+	account := fmt.Sprintf("[%s/9000h/7h]%s", FormatFingerprint(fp), want)
+	key, origin, err = ParseKeySource(account, params)
+	require.NoError(t, err)
+	require.Equal(t, want.String(), key.String())
+	require.Equal(t, wantOrigin, origin)
+
+	pub, err := want.Neuter()
+	require.NoError(t, err)
+	_, _, err = ParseKeySource(
+		fmt.Sprintf(
+			"[%s/9000h/7h]%s", FormatFingerprint(fp), pub,
+		),
+		params,
+	)
+	require.ErrorIs(t, err, ErrAccountKeyPublic)
+
+	_, _, err = ParseKeySource(root.String()+"/9000h/7", params)
+	require.ErrorIs(t, err, ErrBundleAccountPath)
+
+	_, _, err = ParseKeySource(
+		fmt.Sprintf(
+			"[%s/9000h/8h]%s", FormatFingerprint(fp), want,
+		),
+		params,
+	)
+	require.ErrorIs(t, err, ErrBundleAccountPath)
+}

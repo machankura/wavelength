@@ -667,3 +667,150 @@ func FormatAuthKeys(keys *AccountKeys) ([]byte, error) {
 
 	return json.MarshalIndent(entries, "", "  ")
 }
+
+// ParseKeySource parses the private key that fills an overridden slot:
+// either [fingerprint/path]XPRV, an account-level key used as given, or
+// XPRV/path, a master key and the hardened path to derive with standard
+// BIP32. It returns the slot key and its real origin. The caller must zero
+// the key.
+func ParseKeySource(text string, params *chaincfg.Params) (
+	*hdkeychain.ExtendedKey, KeyOrigin, error) {
+
+	body, err := splitChecksum(strings.TrimSpace(text))
+	if err != nil {
+		return nil, KeyOrigin{}, err
+	}
+
+	if strings.HasPrefix(body, "[") {
+		expr, err := parseKeyExpr(body)
+		if err != nil {
+			return nil, KeyOrigin{}, err
+		}
+
+		refuse := func(err error) (*hdkeychain.ExtendedKey, KeyOrigin,
+			error) {
+
+			expr.key.Zero()
+
+			return nil, KeyOrigin{}, err
+		}
+		switch {
+		case !expr.key.IsPrivate():
+			return refuse(ErrAccountKeyPublic)
+
+		case len(expr.originPath) == 0 || len(expr.path) != 0:
+			return refuse(
+				fmt.Errorf("%w: give [fingerprint/path]XPRV "+
+					"with no suffix", ErrBundleAccountPath),
+			)
+
+		case int(expr.key.Depth()) != len(expr.originPath) ||
+			expr.key.ChildIndex() !=
+				expr.originPath[len(expr.originPath)-1]:
+			return refuse(
+				fmt.Errorf("%w: key is not at its stated "+
+					"origin path", ErrBundleAccountPath),
+			)
+		}
+		if err := checkPrivateKey(expr.key, params); err != nil {
+			return refuse(err)
+		}
+
+		return expr.key, KeyOrigin{
+			Fingerprint: expr.originFingerprint,
+			Path:        expr.originPath,
+		}, nil
+	}
+
+	keyText, pathText, _ := strings.Cut(body, "/")
+	root, err := parseExtendedKey(keyText)
+	if err != nil {
+		return nil, KeyOrigin{}, err
+	}
+	defer root.Zero()
+
+	switch {
+	case !root.IsPrivate() || root.Depth() != 0:
+		return nil, KeyOrigin{}, fmt.Errorf("%w: give a master XPRV "+
+			"followed by its path", ErrNotRootKey)
+
+	case pathText == "":
+		return nil, KeyOrigin{}, fmt.Errorf("%w: a master key needs "+
+			"the path to the slot key", ErrBundleAccountPath)
+	}
+	if err := checkPrivateKey(root, params); err != nil {
+		return nil, KeyOrigin{}, err
+	}
+
+	var path []uint32
+	for _, part := range strings.Split(pathText, "/") {
+		index, err := parseIndex(part)
+		if err != nil {
+			return nil, KeyOrigin{}, err
+		}
+		if index < hdkeychain.HardenedKeyStart {
+			return nil, KeyOrigin{}, fmt.Errorf("%w: a slot key's "+
+				"path must be hardened", ErrBundleAccountPath)
+		}
+		path = append(path, index)
+	}
+
+	key, err := deriveHardened(root, path, false)
+	if err != nil {
+		return nil, KeyOrigin{}, err
+	}
+	fp, err := Fingerprint(root)
+	if err != nil {
+		key.Zero()
+
+		return nil, KeyOrigin{}, err
+	}
+
+	return key, KeyOrigin{Fingerprint: fp, Path: path}, nil
+}
+
+// ApplyOverride fills slot of keys with key from origin: "onchain" for the
+// BIP86 account, or a fund family number. Authentication families and
+// families outside the registry cannot be overridden. The old key is
+// wiped, and keys takes ownership of key.
+func ApplyOverride(keys *AccountKeys, slot string, key *hdkeychain.ExtendedKey,
+	origin KeyOrigin) error {
+
+	purpose, account := ScriptTaproot.Purpose(), uint32(0)
+	if slot != "onchain" {
+		number, err := strconv.ParseUint(slot, 10, 32)
+		if err != nil {
+			return fmt.Errorf("%w: slot %q is \"onchain\" or a "+
+				"family number", ErrManifestMalformed, slot)
+		}
+
+		family := keychain.KeyFamily(number)
+		auth := keyfamily.Families(keyfamily.Auth)
+		switch {
+		case slices.Contains(auth, family):
+			return fmt.Errorf("%w: family %d",
+				ErrAuthFamilyOverride, family)
+
+		case !slices.Contains(
+			keyfamily.Families(keyfamily.Funds), family,
+		):
+			return fmt.Errorf("%w: family %d is not a fund family",
+				ErrMinimalBundleFamilies, family)
+		}
+		purpose, account = PurposeKeyFamily, uint32(number)
+	}
+
+	for i, acct := range keys.Accounts {
+		if acct.Purpose != purpose || acct.Account != account {
+			continue
+		}
+
+		acct.Key.Zero()
+		keys.Accounts[i].Key = key
+		keys.Accounts[i].Origin = &origin
+
+		return nil
+	}
+
+	return fmt.Errorf("%w: no slot %s", ErrBundleIncomplete, slot)
+}

@@ -133,9 +133,17 @@ func KeysFromMnemonic(words []string, passphrase []byte,
 
 // WriteBundle writes keys' full or minimal bundle to path. A minimal
 // bundle holds private keys, so it is written owner-only and refused
-// for a path that already exists readable by others.
+// for a path that already exists readable by others. A signer whose slots
+// come from several sources cannot be described by a bundle; write its
+// manifest instead.
 func WriteBundle(path string, keys *walletdesc.AccountKeys,
 	minimal bool) error {
+
+	if HasOverrides(keys) {
+		return errors.New("this signer's slots come from several " +
+			"keys, which a bundle cannot describe; export its " +
+			"manifest and authentication keys instead")
+	}
 
 	text, err := walletdesc.FormatBundle(keys, minimal)
 	if err != nil {
@@ -143,24 +151,66 @@ func WriteBundle(path string, keys *walletdesc.AccountKeys,
 	}
 	defer clear(text)
 
-	mode := os.FileMode(0o644)
 	if minimal {
-		mode = 0o600
-
-		info, err := os.Stat(path)
-		switch {
-		case err == nil && info.Mode().Perm()&0o077 != 0:
-			return fmt.Errorf("refusing to write a minimal "+
-				"bundle, which holds private keys, to %s: it "+
-				"is readable by other users (mode %04o)", path,
-				info.Mode().Perm())
-
-		case err != nil && !errors.Is(err, os.ErrNotExist):
-			return err
-		}
+		return writePrivateFile(path, text)
 	}
 
 	// The path is explicitly provided by the operator, and a full
 	// bundle holds public keys only.
-	return os.WriteFile(path, text, mode)
+	return os.WriteFile(path, text, 0o644)
+}
+
+// WriteManifest writes the manifest of keys to manifestPath and the
+// authentication keys to authKeysPath, the pair a split-signing daemon is
+// created from. The manifest is public; the authentication keys are
+// written owner-only and refused for a readable existing path.
+func WriteManifest(manifestPath, authKeysPath string,
+	keys *walletdesc.AccountKeys, params *chaincfg.Params) error {
+
+	manifest, err := walletdesc.FormatManifest(keys, params)
+	if err != nil {
+		return err
+	}
+	auth, err := walletdesc.FormatAuthKeys(keys)
+	if err != nil {
+		return err
+	}
+	defer clear(auth)
+
+	if err := writePrivateFile(authKeysPath, auth); err != nil {
+		return err
+	}
+
+	// The path is explicitly provided by the operator, and a manifest
+	// holds public keys only.
+	return os.WriteFile(manifestPath, manifest, 0o644)
+}
+
+// HasOverrides reports whether any slot of keys comes from a key other
+// than the primary root's own at that slot.
+func HasOverrides(keys *walletdesc.AccountKeys) bool {
+	for _, acct := range keys.Accounts {
+		if acct.Origin != nil {
+			return true
+		}
+	}
+
+	return false
+}
+
+// writePrivateFile writes secret text owner-only, refusing a path that
+// already exists readable by other users.
+func writePrivateFile(path string, text []byte) error {
+	info, err := os.Stat(path)
+	switch {
+	case err == nil && info.Mode().Perm()&0o077 != 0:
+		return fmt.Errorf("refusing to write private keys to %s: it "+
+			"is readable by other users (mode %04o)", path,
+			info.Mode().Perm())
+
+	case err != nil && !errors.Is(err, os.ErrNotExist):
+		return err
+	}
+
+	return os.WriteFile(path, text, 0o600)
 }

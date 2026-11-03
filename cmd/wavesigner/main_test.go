@@ -177,3 +177,106 @@ func TestKeysFromMnemonic(t *testing.T) {
 	_, err = signerserver.KeysFromMnemonic(mnemonic[:23], nil, params)
 	require.Error(t, err)
 }
+
+// TestCreateWithOverrides fills slots from other keys at create time and
+// exports the manifest and authentication keys, refusing a bundle export,
+// an authentication-family override and an unflagged identity override.
+func TestCreateWithOverrides(t *testing.T) {
+	t.Setenv(passwordEnvVar, "wavesigner-test-pw")
+
+	params := &chaincfg.RegressionNetParams
+	newRoot := func(b byte) *hdkeychain.ExtendedKey {
+		seed := make([]byte, 32)
+		for i := range seed {
+			seed[i] = b + byte(i)
+		}
+		root, err := hdkeychain.NewMaster(seed, params)
+		require.NoError(t, err)
+
+		return root
+	}
+
+	dir := t.TempDir()
+	write := func(name, text string) string {
+		path := filepath.Join(dir, name)
+		require.NoError(t, os.WriteFile(path, []byte(text), 0o600))
+
+		return path
+	}
+
+	primary := newRoot(0x10)
+	descriptors := write(
+		"wallet.descriptors",
+		"tr("+primary.String()+"/86h/0h/0h/<0;1>/*)\n",
+	)
+	coldA := write("cold-a.key", newRoot(0x30).String()+"/1017h/1h/42h")
+	coldB := write("cold-b.key", newRoot(0x50).String()+"/9000h/7h")
+	coldC := write("cold-c.key", newRoot(0x70).String()+"/86h/0h/3h")
+
+	run := func(dataDir string, extra ...string) (string, error) {
+		return runSigner(
+			t, append(
+				extra, "--datadir", dataDir, "--network",
+				"regtest",
+			)...,
+		)
+	}
+
+	// Authentication families cannot be overridden.
+	_, err := run(
+		filepath.Join(dir, "auth"),
+		"create", "--descriptor-file", descriptors, "--override",
+		"43="+coldA,
+	)
+	require.ErrorIs(t, err, walletdesc.ErrAuthFamilyOverride)
+
+	// Overriding the identity needs the flag.
+	_, err = run(
+		filepath.Join(dir, "identity"),
+		"create", "--descriptor-file", descriptors, "--override",
+		"6="+coldB,
+	)
+	require.ErrorIs(t, err, walletdesc.ErrIdentityOverride)
+
+	dataDir := filepath.Join(dir, "signer")
+	out, err := run(
+		dataDir, "create", "--descriptor-file", descriptors,
+		"--override", "42="+coldA, "--override", "44="+coldB,
+		"--override", "onchain="+coldC,
+	)
+	require.NoError(t, err, out)
+
+	_, err = run(
+		dataDir, "export-watchonly", "--output",
+		filepath.Join(dir, "bundle"),
+	)
+	require.ErrorContains(t, err, "export its manifest")
+
+	manifestPath := filepath.Join(dir, "manifest.json")
+	authPath := filepath.Join(dir, "auth-keys.json")
+	out, err = run(
+		dataDir, "export-watchonly", "--manifest-out", manifestPath,
+		"--auth-keys-out", authPath,
+	)
+	require.NoError(t, err, out)
+
+	info, err := os.Stat(authPath)
+	require.NoError(t, err)
+	require.Equal(t, os.FileMode(0o600), info.Mode().Perm())
+
+	data, err := os.ReadFile(manifestPath)
+	require.NoError(t, err)
+	manifest, err := walletdesc.ParseManifest(data, params)
+	require.NoError(t, err)
+	require.Equal(
+		t, []string{"onchain", "42", "44"}, manifest.Overrides(params),
+	)
+
+	data, err = os.ReadFile(authPath)
+	require.NoError(t, err)
+	auth, err := walletdesc.ParseAuthKeys(data, params)
+	require.NoError(t, err)
+	defer auth.Zero()
+	_, err = manifest.MinimalBundle(auth, params)
+	require.NoError(t, err)
+}
