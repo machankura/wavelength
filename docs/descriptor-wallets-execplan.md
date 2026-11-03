@@ -158,12 +158,29 @@ VTXOs.
   wavewalletrpc `Create` `watch_only_bundle`; `wavecli create
   --watch-only-bundle-file`; key origin source 2. Acceptance:
   `TestNativeRemoteSignerDaemon` passes the W0 scenario on lwwallet with a
-  full bundle from an lnd signer. Remaining, now unblocked by W3's
-  keystore: minimal bundles, local authentication keys (families 21 and
-  43), placeholder accounts and the `splitKeyRing` guard, the recording-
-  signer acceptance run, and the startup refusal for an uncovered `Funds`
-  family. Also not done: inbound (signer-dials-daemon) connections, and
-  the SDK and mobile bridges for bundles.
+  full bundle from an lnd signer. Not done: inbound (signer-dials-daemon)
+  connections, and the SDK and mobile bridges for bundles.
+- [x] (2026-11-03) Extension W2, minimal bundles: `walletdesc.ParseBundle`
+  recognises a text bundle with private entries as a minimal bundle (BIP86
+  account and fund families 6, 42, 44, 45, 202 as xpubs, authentication
+  families 21 and 43 as xprvs, nothing else); `MinimalBundle.
+  WithPlaceholders` completes it with placeholder xpubs from a discarded
+  random key. `walletcore.OpenWithSigner` stores the local keys in the
+  account keystore with the supplied family set, routes 21 and 43 to an
+  in-process `accountsigner.Signer` and everything else (PSBTs included)
+  to the remote signer, and wraps the RPC key ring in `guardedKeyRing`,
+  which refuses any family outside the registry or not supplied. Opening
+  restores the split and refuses a stored bundle missing a registry family
+  (`ErrBundleOutdated`). Acceptance: `TestSplitSigning` (walletcore) uses a
+  recording signer that sees no request for 21 or 43 and one for each fund
+  family touched; `TestMinimalBundleDaemon` runs the W0 scenario on
+  lwwallet against an lnd signer. Deviations: the guard is a wrapper over
+  the RPC key ring plus a routing connection, rather than a `splitKeyRing`
+  that implements every interface itself, so the key ring's signature
+  verification covers both sides; the vHTLC and taproot-asset family
+  checks are the same guard, since those families are used through this
+  key ring; the recording-signer acceptance runs in walletcore rather than
+  the systest, because an lnd signer cannot record requests per family.
 - [x] (2026-11-02) Extension W3: account-level private keys with an
   in-process signer. `walletdesc.ParseAccountKeys` takes the on-chain
   `tr()`/`wpkh()` account xprvs plus the families as one coin-level
@@ -196,8 +213,8 @@ VTXOs.
   generated `Descriptor()` method; there is no cursor, so the list is bounded
   by wallet size; VTXO entries report exit delay 0 (unknown) because the
   delay sits in the policy template, which is not decoded here.
-- [ ] Not started: W4 (Wavelength signer mode), W5 (per-family overrides),
-  and W2's minimal-bundle half. W4 can serve `accountsigner.Signer` over
+- [ ] Not started: W4 (Wavelength signer mode), W5 (per-family overrides).
+  W4 can serve `accountsigner.Signer` over
   gRPC almost unchanged, since its methods already have the signrpc and
   walletrpc server shapes. The native remote-signer and account-key
   systests are the acceptance base.

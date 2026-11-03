@@ -136,6 +136,34 @@ account 0 and every key family from 0 to 255: the wallet provisions all of
 them and cannot create a missing one without the master key. The bundle
 holds no secret, but it reveals every address the wallet will use.
 
+A **minimal bundle** splits signing instead of sending everything to the
+signer. It carries only what the wallet uses: the `tr()` account and the
+fund families 6 (identity), 42 (boarding), 44 (VTXO owner), 45 (VTXO tree)
+and 202 (out-of-round receive) as public keys, and the authentication
+families 21 (receive auth) and 43 (round-join auth) as private keys from
+the same seed:
+
+```text
+tr([d34db33f/86h/0h/0h]tpub.../<0;1>/*)
+[d34db33f/1017h/1h/6h]tpub.../0/*
+[d34db33f/1017h/1h/42h]tpub.../0/*
+[d34db33f/1017h/1h/44h]tpub.../0/*
+[d34db33f/1017h/1h/45h]tpub.../0/*
+[d34db33f/1017h/1h/202h]tpub.../0/*
+[d34db33f/1017h/1h/21h]tprv.../0/*
+[d34db33f/1017h/1h/43h]tprv.../0/*
+```
+
+The daemon keeps the two authentication keys encrypted under the wallet
+password and signs with them itself, so round joins and payment receipt
+need no signer round trip; every key that can move funds stays on the
+signer. A minimal bundle must hold exactly these families. Every other
+family gets a placeholder key from a random key discarded at import, and
+the wallet refuses to derive or sign with any family the bundle did not
+supply, so nothing can ever be sent to a placeholder. If a later version
+signs with a new family, the wallet refuses to start and asks for a fresh
+bundle. A minimal bundle holds private keys: keep the file private.
+
 How it behaves:
 
 - With `wallet.remotesigner.enable`, `create` accepts only a bundle; a
@@ -155,8 +183,9 @@ How it behaves:
   connection, so the wasm runtime refuses it.
 
 What this protects: someone who copies the data directory and the wallet
-password gets the public keys and can see the wallet's balances, but holds
-no key that can spend. It does not protect against an attacker who
+password gets the public keys (and, with a minimal bundle, the two
+authentication keys) and can see the wallet's balances and impersonate it
+to the operator, but holds no key that can spend. It does not protect against an attacker who
 controls the running daemon, who can ask the signer to sign a theft; an
 lnd signer signs any valid request.
 
