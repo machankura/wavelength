@@ -150,6 +150,7 @@ func newCreateCmd(opts *options) *cobra.Command {
 		passphraseFile   string
 		overrides        []string
 		overrideIdentity bool
+		manifestFile     string
 	)
 	cmd := &cobra.Command{
 		Use:   "create",
@@ -185,11 +186,29 @@ func newCreateCmd(opts *options) *cobra.Command {
 			}
 			defer keys.Zero()
 
+			// A restore checked against the manifest may keep an
+			// identity override the manifest already records.
 			err = applyOverrides(
-				keys, overrides, overrideIdentity, params,
+				keys, overrides,
+				overrideIdentity || manifestFile != "", params,
 			)
 			if err != nil {
 				return err
+			}
+			if err := checkRestore(
+				keys, manifestFile, params,
+			); err != nil {
+				return err
+			}
+			if manifestFile == "" && len(overrides) == 0 {
+				_, _ = fmt.Fprintln(
+					cmd.ErrOrStderr(),
+					"note: if this wallet's fund slots "+
+						"came from other keys, "+
+						"restore with --override "+
+						"for each and --manifest "+
+						"to check them",
+				)
 			}
 
 			err = signerserver.CreateStore(
@@ -228,6 +247,9 @@ func newCreateCmd(opts *options) *cobra.Command {
 	cmd.Flags().BoolVar(&overrideIdentity, "override-identity", false,
 		"allow --override 6, which gives the wallet a different "+
 			"identity, mailbox and swap key")
+	cmd.Flags().StringVar(&manifestFile, "manifest", "",
+		"restore check: refuse unless the keys fill every slot of "+
+			"this wallet manifest exactly")
 
 	return cmd
 }
@@ -279,6 +301,33 @@ func applyOverrides(keys *walletdesc.AccountKeys, overrides []string,
 	}
 
 	return manifest.CheckIdentity(overrideIdentity, params)
+}
+
+// checkRestore refuses keys that do not fill every slot of the manifest
+// at manifestFile, naming the slots whose key source is missing or wrong.
+// It does nothing without a manifest.
+func checkRestore(keys *walletdesc.AccountKeys, manifestFile string,
+	params *chaincfg.Params) error {
+
+	if manifestFile == "" {
+		return nil
+	}
+
+	// The path is explicitly provided by the operator.
+	data, err := os.ReadFile(manifestFile) //nolint:gosec // G304
+	if err != nil {
+		return err
+	}
+	manifest, err := walletdesc.ParseManifest(data, params)
+	if err != nil {
+		return err
+	}
+	if err := manifest.MatchKeys(keys, params); err != nil {
+		return fmt.Errorf("%w; pass --override SLOT=FILE with the key "+
+			"source of each", err)
+	}
+
+	return nil
 }
 
 // readKeys reads the key material named by create's flags.

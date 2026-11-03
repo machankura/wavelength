@@ -279,4 +279,29 @@ func TestCreateWithOverrides(t *testing.T) {
 	defer auth.Zero()
 	_, err = manifest.MinimalBundle(auth, params)
 	require.NoError(t, err)
+
+	// A restore from the primary root alone is refused for exactly the
+	// overridden slots, and one with every source passes.
+	_, err = run(
+		filepath.Join(dir, "seed-only"),
+		"create", "--descriptor-file", descriptors, "--manifest",
+		manifestPath,
+	)
+	require.ErrorIs(t, err, walletdesc.ErrRestoreMismatch)
+	require.ErrorContains(t, err, "[onchain 42 44]")
+
+	_, err = run(
+		filepath.Join(dir, "partial"),
+		"create", "--descriptor-file", descriptors, "--override",
+		"42="+coldA, "--manifest", manifestPath,
+	)
+	require.ErrorContains(t, err, "[onchain 44]")
+
+	out, err = run(
+		filepath.Join(dir, "restored"),
+		"create", "--descriptor-file", descriptors, "--override",
+		"42="+coldA, "--override", "44="+coldB, "--override",
+		"onchain="+coldC, "--manifest", manifestPath,
+	)
+	require.NoError(t, err, out)
 }

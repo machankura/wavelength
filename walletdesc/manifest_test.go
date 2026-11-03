@@ -358,3 +358,33 @@ func TestParseKeySource(t *testing.T) {
 	)
 	require.ErrorIs(t, err, ErrBundleAccountPath)
 }
+
+// TestManifestMatchKeys checks a restore matches its manifest only with
+// every key source, and names the slots a primary-only restore misses.
+func TestManifestMatchKeys(t *testing.T) {
+	t.Parallel()
+
+	params := &chaincfg.RegressionNetParams
+	keys := overriddenKeys(t)
+	defer keys.Zero()
+
+	data, err := FormatManifest(keys, params)
+	require.NoError(t, err)
+	m, err := ParseManifest(data, params)
+	require.NoError(t, err)
+	require.NoError(t, m.MatchKeys(keys, params))
+
+	primary, err := BtcwalletAccountKeys(testSourceRoot(t, 1), params)
+	require.NoError(t, err)
+	defer primary.Zero()
+	err = m.MatchKeys(primary, params)
+	require.ErrorIs(t, err, ErrRestoreMismatch)
+	require.ErrorContains(t, err, "[onchain 42 44 202]")
+
+	other, err := BtcwalletAccountKeys(testSourceRoot(t, 2), params)
+	require.NoError(t, err)
+	defer other.Zero()
+	require.ErrorContains(
+		t, m.MatchKeys(other, params), "primary root",
+	)
+}

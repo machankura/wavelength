@@ -52,6 +52,12 @@ var (
 	// ErrManifestIncomplete is returned when a manifest misses a fund
 	// slot.
 	ErrManifestIncomplete = errors.New("wallet manifest is incomplete")
+
+	// ErrRestoreMismatch is returned when restored keys do not fill a
+	// manifest's slots with the keys it records: a key source is
+	// missing, or a different one was supplied.
+	ErrRestoreMismatch = errors.New("restored keys do not match the " +
+		"wallet manifest")
 )
 
 // manifestJSON is the manifest's wire form.
@@ -824,4 +830,46 @@ func (m *Manifest) OnChainDescriptor() (string, error) {
 			formatKeyWithOrigin(m.OnChain.Key, m.OnChain.Origin),
 		),
 	)
+}
+
+// MatchKeys checks keys fill every slot of the manifest with the key it
+// records, as a restore must, and names each slot that differs. A restore
+// from the primary root alone fails here for every overridden slot.
+func (m *Manifest) MatchKeys(keys *AccountKeys, params *chaincfg.Params) error {
+	text, err := FormatManifest(keys, params)
+	if err != nil {
+		return err
+	}
+	have, err := ParseManifest(text, params)
+	if err != nil {
+		return err
+	}
+
+	if have.PrimaryFingerprint != m.PrimaryFingerprint {
+		return fmt.Errorf("%w: primary root %s, manifest names %s",
+			ErrRestoreMismatch,
+			FormatFingerprint(have.PrimaryFingerprint),
+			FormatFingerprint(m.PrimaryFingerprint))
+	}
+
+	same := func(a, b ManifestSlot) bool {
+		return a.Key.String() == b.Key.String() &&
+			a.Origin.Fingerprint == b.Origin.Fingerprint &&
+			slices.Equal(a.Origin.Path, b.Origin.Path)
+	}
+
+	var differ []string
+	if !same(have.OnChain, m.OnChain) {
+		differ = append(differ, "onchain")
+	}
+	for _, family := range keyfamily.Families(keyfamily.Funds) {
+		if !same(have.Families[family], m.Families[family]) {
+			differ = append(differ, strconv.Itoa(int(family)))
+		}
+	}
+	if len(differ) > 0 {
+		return fmt.Errorf("%w: slots %v", ErrRestoreMismatch, differ)
+	}
+
+	return nil
 }
