@@ -1,6 +1,7 @@
 package accountsigner_test
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"fmt"
 	"testing"
@@ -12,6 +13,7 @@ import (
 	"github.com/btcsuite/btcd/btcutil/v2/hdkeychain"
 	"github.com/btcsuite/btcd/chaincfg/v2"
 	"github.com/btcsuite/btcd/chainhash/v2"
+	"github.com/btcsuite/btcd/psbt/v2"
 	"github.com/btcsuite/btcd/txscript/v2"
 	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/lightninglabs/wavelength/accountsigner"
@@ -20,6 +22,7 @@ import (
 	"github.com/lightningnetwork/lnd/blockcache"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
+	"github.com/lightningnetwork/lnd/lnrpc/walletrpc"
 	"github.com/lightningnetwork/lnd/lnwallet/btcwallet"
 	"github.com/stretchr/testify/require"
 )
@@ -333,4 +336,126 @@ func TestSignerSignOutputRaw(t *testing.T) {
 // schnorrPub returns the x-only serialization of pub.
 func schnorrPub(pub *btcec.PublicKey) []byte {
 	return pub.SerializeCompressed()[1:]
+}
+
+// TestSignerRefusesForeignPaths checks a PSBT input whose derivation path
+// lies outside the signer's accounts, such as BIP49 or another coin type,
+// is left unsigned even when the public key would match.
+func TestSignerRefusesForeignPaths(t *testing.T) {
+	t.Parallel()
+
+	root := testRoot(t)
+	signer := accountsigner.New(testAccountKeys(t, root), testParams)
+	defer signer.Stop()
+
+	for _, test := range []struct {
+		path   []uint32
+		signed bool
+	}{
+		// The positive control: the same setup signs an in-scope path.
+		{
+			path: []uint32{
+				86,
+				0,
+				0,
+				0,
+				0,
+			},
+			signed: true,
+		},
+		{
+			path: []uint32{
+				49,
+				0,
+				0,
+				0,
+				0,
+			},
+		},
+		{
+			path: []uint32{
+				86,
+				1,
+				0,
+				0,
+				0,
+			},
+		},
+		{
+			path: []uint32{
+				1017,
+				0,
+				44,
+				0,
+				0,
+			},
+		},
+		{
+			path: []uint32{
+				44,
+				0,
+				0,
+				0,
+				0,
+			},
+		},
+	} {
+		path := test.path
+		key := root
+		for i, step := range path {
+			if i < 3 {
+				step += hdkeychain.HardenedKeyStart
+			}
+			var err error
+			key, err = key.Derive(step)
+			require.NoError(t, err)
+		}
+		pub, err := key.ECPubKey()
+		require.NoError(t, err)
+
+		pkScript, err := txscript.PayToTaprootScript(
+			txscript.ComputeTaprootKeyNoScript(pub),
+		)
+		require.NoError(t, err)
+
+		tx := wire.NewMsgTx(2)
+		tx.AddTxIn(&wire.TxIn{})
+		tx.AddTxOut(&wire.TxOut{Value: 1_000, PkScript: pkScript})
+		packet, err := psbt.NewFromUnsignedTx(tx)
+		require.NoError(t, err)
+
+		bip32Path := make([]uint32, len(path))
+		for i, step := range path {
+			bip32Path[i] = step
+			if i < 3 {
+				bip32Path[i] += hdkeychain.HardenedKeyStart
+			}
+		}
+		packet.Inputs[0].WitnessUtxo = &wire.TxOut{
+			Value: 2_000, PkScript: pkScript,
+		}
+		packet.Inputs[0].Bip32Derivation = []*psbt.Bip32Derivation{{
+			PubKey:    pub.SerializeCompressed(),
+			Bip32Path: bip32Path,
+		}}
+		packet.Inputs[0].TaprootBip32Derivation = []*psbt.
+			TaprootBip32Derivation{{
+			XOnlyPubKey: pub.SerializeCompressed()[1:],
+			Bip32Path:   bip32Path,
+		}}
+
+		var buf bytes.Buffer
+		require.NoError(t, packet.Serialize(&buf))
+		resp, err := signer.SignPsbt(
+			t.Context(), &walletrpc.SignPsbtRequest{
+				FundedPsbt: buf.Bytes(),
+			},
+		)
+		require.NoError(t, err)
+		if test.signed {
+			require.Equal(t, []uint32{0}, resp.SignedInputs)
+		} else {
+			require.Empty(t, resp.SignedInputs, "path %v", path)
+		}
+	}
 }

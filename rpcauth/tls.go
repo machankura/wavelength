@@ -18,6 +18,15 @@ const tlsCertValidity = 14 * 30 * 24 * time.Hour
 // EnsureTLSCert loads an existing TLS cert/key pair or creates a self-signed
 // pair when both paths are empty on disk.
 func EnsureTLSCert(certPath, keyPath, organization string) error {
+	return EnsureTLSCertFor(certPath, keyPath, organization, nil, nil)
+}
+
+// EnsureTLSCertFor is EnsureTLSCert with extra IP addresses and domains in
+// a newly generated certificate, for a server clients reach by a name the
+// autofilled local addresses do not cover. An existing pair is kept as is.
+func EnsureTLSCertFor(certPath, keyPath, organization string, extraIPs,
+	extraDomains []string) error {
+
 	if certPath == "" || keyPath == "" {
 		return fmt.Errorf("tls cert and key paths are required")
 	}
@@ -48,7 +57,7 @@ func EnsureTLSCert(certPath, keyPath, organization string) error {
 	}
 
 	cert, key, err := lndcert.GenCertPair(
-		organization, nil, nil, false, tlsCertValidity,
+		organization, extraIPs, extraDomains, false, tlsCertValidity,
 	)
 	if err != nil {
 		return fmt.Errorf("generate tls cert: %w", err)
