@@ -229,6 +229,18 @@ func (w *Wallet) VerifyRemoteSigner() error {
 		return errors.New("remote-signing wallet has a local key ring")
 	}
 
+	// An inbound signer may not have connected yet; give it the
+	// connection timeout before probing.
+	timeout := w.RemoteSigner.Timeout()
+	if timeout <= 0 {
+		timeout = DefaultRemoteSignerTimeout
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+	if err := <-w.RemoteSigner.Ready(ctx); err != nil {
+		return fmt.Errorf("remote signer not ready: %w", err)
+	}
+
 	_, err := ProbeSigner(ring, w.BtcWallet, w.ChainParams)
 
 	return err

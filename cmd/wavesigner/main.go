@@ -387,6 +387,7 @@ func newRunCmd(opts *options) *cobra.Command {
 		listen       string
 		extraIPs     []string
 		extraDomains []string
+		watchOnly    signerserver.WatchOnlyConfig
 	)
 	cmd := &cobra.Command{
 		Use:   "run",
@@ -395,9 +396,20 @@ func newRunCmd(opts *options) *cobra.Command {
 			"protocol on --listen. The watch-only daemon needs " +
 			"tls.cert and signer.macaroon from the network " +
 			"directory, written on first start; the macaroon " +
-			"grants signing, so give it to that daemon only.",
+			"grants signing, so give it to that daemon only.\n\n" +
+			"With --watchonly-host the signer dials the daemon " +
+			"instead, for a daemon run with " +
+			"wallet.remotesigner.allowinbound: it needs the " +
+			"daemon's tls.cert and a daemon macaroon granting " +
+			"remotesigner:generate, and serves no listener " +
+			"unless --listen is also given.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
+			outbound := watchOnly.RPCHost != ""
+			if outbound && !cmd.Flags().Changed("listen") {
+				listen = ""
+			}
+
 			params, err := opts.params()
 			if err != nil {
 				return err
@@ -444,10 +456,25 @@ func newRunCmd(opts *options) *cobra.Command {
 				server.Stop()
 			}()
 
-			_, _ = fmt.Fprintf(
-				cmd.OutOrStdout(),
-				"wavesigner serving on %s\n", server.Addr(),
-			)
+			if outbound {
+				err := server.ConnectWatchOnly(ctx, watchOnly)
+				if err != nil {
+					server.Stop()
+
+					return err
+				}
+				_, _ = fmt.Fprintf(
+					cmd.OutOrStdout(),
+					"wavesigner connecting to %s\n",
+					watchOnly.RPCHost,
+				)
+			}
+			if addr := server.Addr(); addr != nil {
+				_, _ = fmt.Fprintf(
+					cmd.OutOrStdout(),
+					"wavesigner serving on %s\n", addr,
+				)
+			}
 
 			return server.Serve()
 		},
@@ -458,6 +485,13 @@ func newRunCmd(opts *options) *cobra.Command {
 		"extra IP address for a newly generated TLS certificate")
 	cmd.Flags().StringSliceVar(&extraDomains, "tlsextradomain", nil,
 		"extra domain for a newly generated TLS certificate")
+	cmd.Flags().StringVar(&watchOnly.RPCHost, "watchonly-host", "",
+		"dial this watch-only daemon's RPC host:port instead of "+
+			"waiting for it to dial in")
+	cmd.Flags().StringVar(&watchOnly.MacaroonPath, "watchonly-macaroon",
+		"", "daemon macaroon granting remotesigner:generate")
+	cmd.Flags().StringVar(&watchOnly.TLSCertPath, "watchonly-tlscert",
+		"", "the watch-only daemon's TLS certificate")
 
 	return cmd
 }

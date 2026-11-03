@@ -6,19 +6,25 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"sync"
+	"time"
 
 	"github.com/btcsuite/btcd/chaincfg/v2"
 	"github.com/lightninglabs/wavelength/accountsigner"
 	"github.com/lightninglabs/wavelength/rpcauth"
 	"github.com/lightninglabs/wavelength/walletdesc"
+	"github.com/lightningnetwork/lnd/lncfg"
 	"github.com/lightningnetwork/lnd/lnrpc/signrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/walletrpc"
+	"github.com/lightningnetwork/lnd/lnwallet/rpcwallet"
 	"google.golang.org/grpc"
 )
 
 // Config configures a signer server.
 type Config struct {
-	// ListenAddr is the host:port to serve on.
+	// ListenAddr is the host:port to serve on. Empty serves no listener,
+	// for a signer that only dials out to watch-only daemons
+	// (ConnectWatchOnly); the TLS and macaroon paths are then unused.
 	ListenAddr string
 
 	// TLSCertPath and TLSKeyPath hold the server's TLS pair, generated
@@ -55,6 +61,14 @@ type Server struct {
 
 	grpcServer *grpc.Server
 	listener   net.Listener
+
+	// outbound are the connections dialed out to watch-only daemons.
+	outboundMu sync.Mutex
+	outbound   []*rpcwallet.OutboundClient
+
+	// quit is closed by Stop, ending a listener-less Serve.
+	quit     chan struct{}
+	stopOnce sync.Once
 }
 
 // New prepares a signer: TLS pair, macaroon, listener and services. Serve
@@ -67,6 +81,15 @@ func New(cfg Config) (*Server, error) {
 	accounts, err := cfg.Keys.Bundle()
 	if err != nil {
 		return nil, err
+	}
+
+	s := &Server{
+		signer:   accountsigner.New(cfg.Keys, cfg.Params),
+		accounts: accounts,
+		quit:     make(chan struct{}),
+	}
+	if cfg.ListenAddr == "" {
+		return s, nil
 	}
 
 	err = rpcauth.EnsureTLSCertFor(
@@ -93,33 +116,39 @@ func New(cfg Config) (*Server, error) {
 		return nil, err
 	}
 
-	s := &Server{
-		signer:   accountsigner.New(cfg.Keys, cfg.Params),
-		accounts: accounts,
-		grpcServer: grpc.NewServer(
-			grpc.Creds(creds),
-			grpc.ChainUnaryInterceptor(
-				unaryAuth(rootKey),
-			),
-			grpc.ChainStreamInterceptor(
-				streamAuth(rootKey),
-			),
+	s.grpcServer = grpc.NewServer(
+		grpc.Creds(creds),
+		grpc.ChainUnaryInterceptor(
+			unaryAuth(rootKey),
 		),
-		listener: listener,
-	}
+		grpc.ChainStreamInterceptor(
+			streamAuth(rootKey),
+		),
+	)
+	s.listener = listener
 	signrpc.RegisterSignerServer(s.grpcServer, s)
 	walletrpc.RegisterWalletKitServer(s.grpcServer, s)
 
 	return s, nil
 }
 
-// Addr is the address the signer listens on.
+// Addr is the address the signer listens on, or nil without a listener.
 func (s *Server) Addr() net.Addr {
+	if s.listener == nil {
+		return nil
+	}
+
 	return s.listener.Addr()
 }
 
 // Serve answers requests until Stop.
 func (s *Server) Serve() error {
+	if s.grpcServer == nil {
+		<-s.quit
+
+		return nil
+	}
+
 	err := s.grpcServer.Serve(s.listener)
 	if errors.Is(err, grpc.ErrServerStopped) {
 		return nil
@@ -128,10 +157,91 @@ func (s *Server) Serve() error {
 	return err
 }
 
-// Stop stops serving and wipes the keys.
+// WatchOnlyConfig locates a watch-only daemon that accepts an inbound
+// signer (wallet.remotesigner.allowinbound).
+type WatchOnlyConfig struct {
+	// RPCHost is the daemon's RPC host:port.
+	RPCHost string
+
+	// MacaroonPath is a daemon macaroon granting remotesigner:generate.
+	MacaroonPath string
+
+	// TLSCertPath is the daemon's TLS certificate.
+	TLSCertPath string
+
+	// Timeout bounds each connection attempt, and RequestTimeout each
+	// response; zero selects 30 and 10 seconds.
+	Timeout        time.Duration
+	RequestTimeout time.Duration
+}
+
+// ConnectWatchOnly dials the watch-only daemon and answers its signing
+// requests over the stream it opens, reconnecting with backoff whenever
+// the stream ends, until Stop. Requests on the stream are not checked
+// against this signer's macaroon: the daemon authenticated the signer's
+// macaroon, and the signer trusts the daemon's TLS certificate.
+func (s *Server) ConnectWatchOnly(ctx context.Context,
+	cfg WatchOnlyConfig) error {
+
+	if cfg.RPCHost == "" || cfg.MacaroonPath == "" ||
+		cfg.TLSCertPath == "" {
+		return errors.New("watch-only daemon host, macaroon and TLS " +
+			"certificate are required")
+	}
+	if cfg.Timeout == 0 {
+		cfg.Timeout = 30 * time.Second
+	}
+	if cfg.RequestTimeout == 0 {
+		cfg.RequestTimeout = 10 * time.Second
+	}
+
+	feeder := rpcwallet.NewStreamFeeder(lncfg.ConnectionCfg{
+		RPCHost:                    cfg.RPCHost,
+		MacaroonPath:               cfg.MacaroonPath,
+		TLSCertPath:                cfg.TLSCertPath,
+		Timeout:                    cfg.Timeout,
+		ExperimentalRequestTimeout: cfg.RequestTimeout,
+	})
+	client, err := rpcwallet.NewOutboundClient(
+		s, s, feeder, cfg.RequestTimeout,
+	)
+	if err != nil {
+		return err
+	}
+
+	s.outboundMu.Lock()
+	defer s.outboundMu.Unlock()
+
+	select {
+	case <-s.quit:
+		return errors.New("signer stopped")
+
+	default:
+	}
+
+	if err := client.Start(ctx); err != nil {
+		return err
+	}
+	s.outbound = append(s.outbound, client)
+
+	return nil
+}
+
+// Stop stops serving, closes outbound connections and wipes the keys.
 func (s *Server) Stop() {
-	s.grpcServer.Stop()
-	s.signer.Stop()
+	s.stopOnce.Do(func() {
+		s.outboundMu.Lock()
+		close(s.quit)
+		for _, client := range s.outbound {
+			_ = client.Stop()
+		}
+		s.outboundMu.Unlock()
+
+		if s.grpcServer != nil {
+			s.grpcServer.Stop()
+		}
+		s.signer.Stop()
+	})
 }
 
 // SignMessage signs a message with a key family key.

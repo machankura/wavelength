@@ -6,6 +6,7 @@ import (
 	"github.com/lightninglabs/wavelength/rpc/swapclientrpc"
 	"github.com/lightninglabs/wavelength/rpc/wavewalletrpc"
 	"github.com/lightninglabs/wavelength/waverpc"
+	"github.com/lightningnetwork/lnd/lnrpc/watchonlyrpc"
 	"google.golang.org/grpc"
 	"gopkg.in/macaroon-bakery.v2/bakery"
 )
@@ -57,6 +58,12 @@ const (
 
 	// entityMacaroon covers privileged daemon credential creation.
 	entityMacaroon = "macaroon"
+
+	// entityRemoteSigner covers an inbound remote signer's stream, the
+	// permission lnd's watch-only node requires for it too. Holding it
+	// lets a process stand in as the wallet's signer, so it is only
+	// ever given to that signer.
+	entityRemoteSigner = "remotesigner"
 )
 
 // wavedEntities is the full set of logical macaroon entities. The read-only
@@ -74,6 +81,7 @@ var wavedEntities = []string{
 	entityFees,
 	entityActivity,
 	entityMacaroon,
+	entityRemoteSigner,
 }
 
 var wavedRPCPermissions = newWavedRPCPermissions()
@@ -96,6 +104,11 @@ func newWavedRPCPermissions() map[string][]bakery.Op {
 			}}
 		}
 	}
+
+	grant(
+		watchonlyrpc.WatchOnly_ServiceDesc.ServiceName,
+		entityRemoteSigner, "generate", "SignCoordinatorStreams",
+	)
 
 	macaroonService := waverpc.MacaroonService_ServiceDesc.ServiceName
 	grant(

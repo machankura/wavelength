@@ -974,4 +974,11 @@ func registerRemoteSignerFlags(f *pflag.FlagSet, cfg *waved.Config) {
 		"wallet.remotesigner.requesttimeout", signer.RequestTimeout,
 		"timeout for each remote signing request (0 = 10s)",
 	)
+	f.Bool(
+		"wallet.remotesigner.allowinbound", signer.AllowInbound, "le"+
+			"t the signer dial this daemon's RPC listener "+
+			"instead, authenticated by a remotesigner:generate "+
+			"macaroon; rpchost, macaroonpath and tlscertpath "+
+			"stay empty",
+	)
 }

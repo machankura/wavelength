@@ -73,8 +73,10 @@ import (
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/signrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/walletrpc"
+	"github.com/lightningnetwork/lnd/lnrpc/watchonlyrpc"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
+	"github.com/lightningnetwork/lnd/lnwallet/rpcwallet"
 	"github.com/lightningnetwork/lnd/signal"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/connectivity"
@@ -182,6 +184,11 @@ func Main(cfg *Config, interceptor signal.Interceptor) error {
 type Server struct {
 	cfg *Config
 	clk clock.Clock
+
+	// inboundSigner is the stream a remote signer dials into when
+	// wallet.remotesigner.allowinbound is set, served on the RPC
+	// listener. It lives as long as the daemon, across wallet restarts.
+	inboundSigner *rpcwallet.InboundConnection
 
 	logManager *lndbuild.SubLoggerManager
 	loggers    SubLoggers
@@ -1282,6 +1289,29 @@ func (s *Server) runInner(ctx context.Context, shutdownFn func()) error {
 	// -------------------------------------------------------
 	// 1. Initialize wallet backend (lnd or lwwallet).
 	// -------------------------------------------------------
+
+	// An inbound signer can only connect once the RPC listener below
+	// serves, so its connection exists from the start and an existing
+	// wallet is unlocked only after the listener is up.
+	signerCfg := s.cfg.Wallet.RemoteSigner
+	deferAutoUnlock := signerCfg.Enable && signerCfg.AllowInbound
+	if deferAutoUnlock {
+		// A config that skipped validation has zero timeouts, which
+		// would expire every handshake at once.
+		requestTimeout := signerCfg.RequestTimeout
+		if requestTimeout <= 0 {
+			requestTimeout =
+				walletcore.DefaultRemoteSignerRequestTimeout
+		}
+		connectTimeout := signerCfg.Timeout
+		if connectTimeout <= 0 {
+			connectTimeout = walletcore.DefaultRemoteSignerTimeout
+		}
+		s.inboundSigner = rpcwallet.NewInboundConnection(
+			requestTimeout, connectTimeout,
+		)
+	}
+
 	switch s.cfg.Wallet.Type {
 	case WalletTypeLnd:
 		if err := s.initLndBackend(ctx); err != nil {
@@ -1296,6 +1326,9 @@ func (s *Server) runInner(ctx context.Context, shutdownFn func()) error {
 		// continues startup with the wallet in a non-ready
 		// state and waits for InitWallet or UnlockWallet
 		// RPCs.
+		if deferAutoUnlock {
+			break
+		}
 		if err := s.tryAutoUnlockLwwallet(ctx); err != nil {
 			return err
 		}
@@ -1315,6 +1348,9 @@ func (s *Server) runInner(ctx context.Context, shutdownFn func()) error {
 
 		// In btcwallet mode, use the same auto-unlock flow
 		// as lwwallet but start a neutrino-backed wallet.
+		if deferAutoUnlock {
+			break
+		}
 		if err := s.tryAutoUnlockBtcwallet(ctx); err != nil {
 			return err
 		}
@@ -1567,6 +1603,13 @@ func (s *Server) runInner(ctx context.Context, shutdownFn func()) error {
 	if cleanup := registerBtcwalletRPC(s.grpcServer, s); cleanup != nil {
 		defer cleanup()
 	}
+	if s.inboundSigner != nil {
+		watchonlyrpc.RegisterWatchOnlyServer(
+			s.grpcServer, &watchonlyrpc.InboundServer{
+				Conn: s.inboundSigner,
+			},
+		)
+	}
 
 	// Publish a lazy credit-registry reference before the swap registrars
 	// run so the wavewalletrpc subserver can route credit-backed Send/Recv
@@ -1674,6 +1717,15 @@ func (s *Server) runInner(ctx context.Context, shutdownFn func()) error {
 			<-stopped
 		}
 	}()
+
+	if s.inboundSigner != nil {
+		// Deferred after the graceful stop above, so it runs first:
+		// the signer's stream only ends once its coordinator stops,
+		// and a graceful stop waits for every stream.
+		defer s.inboundSigner.Stop()
+
+		go s.autoUnlockAfterListen(ctx)
+	}
 
 	// -------------------------------------------------------
 	// 7-11. Mailbox transport + wallet-dependent actors.
@@ -2101,6 +2153,23 @@ func (s *Server) tryAutoUnlockLwwallet(ctx context.Context) error {
 	return nil
 }
 
+// autoUnlockAfterListen runs the self-managed wallet's auto-unlock once the
+// RPC listener serves, for an inbound signer that can only connect then.
+// The unlock waits for the signer up to wallet.remotesigner.timeout.
+func (s *Server) autoUnlockAfterListen(ctx context.Context) {
+	var err error
+	switch s.cfg.Wallet.Type {
+	case WalletTypeLwwallet:
+		err = s.tryAutoUnlockLwwallet(ctx)
+
+	case WalletTypeBtcwallet:
+		err = s.tryAutoUnlockBtcwallet(ctx)
+	}
+	if err != nil {
+		s.log.ErrorS(ctx, "Wallet auto-unlock failed", err)
+	}
+}
+
 // startLwwallet creates and starts the lightweight wallet. A creation
 // input with a seed or root key creates a new wallet database encrypted
 // under the given password; the zero input opens the existing database,
@@ -2131,15 +2200,17 @@ func (s *Server) startLwwallet(ctx context.Context, input walletCreateInput,
 		WatchOnlyMinimal:  input.watchOnlyMinimal,
 		WatchOnlyManifest: input.watchOnlyManifest,
 		AccountKeys:       input.accountKeys,
-		RemoteSigner:      s.cfg.Wallet.RemoteSigner.walletcoreConfig(),
-		WalletPassword:    walletPassword,
-		Birthday:          input.birthday,
-		EsploraURL:        s.cfg.Wallet.EsploraURL,
-		ChainParams:       s.chainParams,
-		PollInterval:      pollInterval,
-		RecoveryWindow:    recoveryWindow,
-		DBDir:             networkDir,
-		Log:               fn.Some(s.subLogger(lwwallet.Subsystem)),
+		RemoteSigner: s.cfg.Wallet.RemoteSigner.walletcoreConfig(
+			s.inboundSigner,
+		),
+		WalletPassword: walletPassword,
+		Birthday:       input.birthday,
+		EsploraURL:     s.cfg.Wallet.EsploraURL,
+		ChainParams:    s.chainParams,
+		PollInterval:   pollInterval,
+		RecoveryWindow: recoveryWindow,
+		DBDir:          networkDir,
+		Log:            fn.Some(s.subLogger(lwwallet.Subsystem)),
 	})
 	if err != nil {
 		return fmt.Errorf("create lwwallet: %w", err)
@@ -2396,7 +2467,9 @@ func (s *Server) startBtcwallet(ctx context.Context, input walletCreateInput,
 		recoveryWindow = DefaultRecoveryWindow
 	}
 
-	remoteSigner := s.cfg.Wallet.RemoteSigner.walletcoreConfig()
+	remoteSigner := s.cfg.Wallet.RemoteSigner.walletcoreConfig(
+		s.inboundSigner,
+	)
 	cfg := btcwbackend.Config{
 		Config: walletcore.Config{
 			Seed:              input.seed,

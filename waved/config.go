@@ -26,6 +26,7 @@ import (
 	"github.com/lightninglabs/wavelength/rpc/roundpb"
 	"github.com/lightninglabs/wavelength/unroll"
 	"github.com/lightninglabs/wavelength/walletcore"
+	"github.com/lightningnetwork/lnd/lnwallet/rpcwallet"
 	"google.golang.org/grpc"
 )
 
@@ -1249,22 +1250,38 @@ type RemoteSignerConfig struct {
 	// RequestTimeout bounds each signing request. Zero selects
 	// walletcore.DefaultRemoteSignerRequestTimeout.
 	RequestTimeout time.Duration `mapstructure:"requesttimeout"`
+
+	// AllowInbound makes the signer dial the daemon instead: it opens a
+	// stream on the daemon's RPC listener with a macaroon granting
+	// remotesigner:generate, and RPCHost, MacaroonPath and TLSCertPath
+	// stay empty. Timeout then bounds how long a start waits for the
+	// signer to connect.
+	AllowInbound bool `mapstructure:"allowinbound"`
 }
 
 // walletcoreConfig returns the signer config for the wallet backends, or
-// nil when remote signing is off.
-func (c RemoteSignerConfig) walletcoreConfig() *walletcore.RemoteSignerConfig {
+// nil when remote signing is off. inbound is the daemon's inbound signer
+// connection when AllowInbound is set.
+func (c RemoteSignerConfig) walletcoreConfig(
+	inbound rpcwallet.InboundRemoteSignerConnection,
+) *walletcore.RemoteSignerConfig {
+
 	if !c.Enable {
 		return nil
 	}
 
-	return &walletcore.RemoteSignerConfig{
+	cfg := &walletcore.RemoteSignerConfig{
 		RPCHost:        c.RPCHost,
 		MacaroonPath:   c.MacaroonPath,
 		TLSCertPath:    c.TLSCertPath,
 		Timeout:        c.Timeout,
 		RequestTimeout: c.RequestTimeout,
 	}
+	if c.AllowInbound {
+		cfg.Inbound = inbound
+	}
+
+	return cfg
 }
 
 // DefaultConfig returns a Config populated with sensible defaults.
@@ -1546,7 +1563,21 @@ func (w *WalletConfig) validateRemoteSigner() error {
 			"backend configures its own remote signer", w.Type)
 	}
 
-	signer := w.RemoteSigner.walletcoreConfig()
+	var inbound rpcwallet.InboundRemoteSignerConnection
+	if w.RemoteSigner.AllowInbound {
+		if w.RemoteSigner.RPCHost != "" ||
+			w.RemoteSigner.MacaroonPath != "" ||
+			w.RemoteSigner.TLSCertPath != "" {
+			return fmt.Errorf("wallet.remotesigner.allowinbound " +
+				"takes no rpchost, macaroonpath or " +
+				"tlscertpath: the signer dials the daemon")
+		}
+
+		// Validation only needs a connection to be present.
+		inbound = rpcwallet.NewInboundConnection(0, 0)
+	}
+
+	signer := w.RemoteSigner.walletcoreConfig(inbound)
 	if err := signer.Validate(); err != nil {
 		return fmt.Errorf("wallet.remotesigner: %w", err)
 	}

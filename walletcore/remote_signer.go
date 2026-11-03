@@ -68,12 +68,23 @@ type RemoteSignerConfig struct {
 	// RequestTimeout bounds each request. Zero selects
 	// DefaultRemoteSignerRequestTimeout.
 	RequestTimeout time.Duration
+
+	// Inbound, when set, is a connection the signer dials into instead
+	// of one the wallet dials out on; RPCHost, MacaroonPath and
+	// TLSCertPath are then unused. Its owner, the daemon, serves the
+	// signer's stream and stops it: a wallet only borrows it, since
+	// lnd's coordinator cannot be restarted once stopped.
+	Inbound rpcwallet.InboundRemoteSignerConnection
 }
 
 // Validate checks the configuration is complete and fills in default
 // timeouts.
 func (c *RemoteSignerConfig) Validate() error {
 	switch {
+	case c.Timeout < 0 || c.RequestTimeout < 0:
+		return errors.New("remote signer timeouts must not be negative")
+
+	case c.Inbound != nil:
 	case c.RPCHost == "":
 		return errors.New("remote signer rpchost is required")
 
@@ -82,9 +93,6 @@ func (c *RemoteSignerConfig) Validate() error {
 
 	case c.TLSCertPath == "":
 		return errors.New("remote signer tlscertpath is required")
-
-	case c.Timeout < 0 || c.RequestTimeout < 0:
-		return errors.New("remote signer timeouts must not be negative")
 	}
 
 	if c.Timeout == 0 {
@@ -191,12 +199,20 @@ func OpenRemoteSigning(ctx context.Context, cfg btcwallet.Config,
 		return nil, err
 	}
 
-	dialCtx, cancel := context.WithTimeout(ctx, remote.Timeout)
-	defer cancel()
+	var remoteConn rpcwallet.RemoteSignerConnection
+	if remote.Inbound != nil {
+		remoteConn = &borrowedConn{
+			InboundRemoteSignerConnection: remote.Inbound,
+		}
+	} else {
+		dialCtx, cancel := context.WithTimeout(ctx, remote.Timeout)
+		defer cancel()
 
-	remoteConn, err := DialRemoteSigner(dialCtx, remote)
-	if err != nil {
-		return nil, err
+		conn, err := DialRemoteSigner(dialCtx, remote)
+		if err != nil {
+			return nil, err
+		}
+		remoteConn = conn
 	}
 
 	signing, err := OpenWithSigner(
@@ -393,3 +409,13 @@ func splitSigningKeys(btcw *btcwallet.BtcWallet,
 
 	return local, supplied, nil
 }
+
+// borrowedConn is an inbound signer connection a wallet uses but does not
+// own. Stopping the wallet leaves it running, so a later unlock in the same
+// daemon can sign through it again; the daemon stops it on shutdown.
+type borrowedConn struct {
+	rpcwallet.InboundRemoteSignerConnection
+}
+
+// Stop does nothing; the connection's owner stops it.
+func (c *borrowedConn) Stop() {}
