@@ -38,6 +38,13 @@ SDK and tests share one set of rules.
   else. `MinimalBundle.WithPlaceholders` completes it for import with
   placeholder xpubs for every other family, derived from a discarded random
   key.
+- `BtcwalletAccountKeys(root, params)` — the account keys a btcwallet built
+  from `root` holds, derived exactly as btcwallet does: on-chain accounts and
+  family 0 from in-memory `DeriveNonStandard` keys, families 1 to 255 from
+  the padded stored coin-level key. A signer over them signs for exactly
+  what a seed wallet of `root` uses.
+- `FormatBundle(keys, minimal)` — renders account keys as a full or minimal
+  bundle, checksummed, one entry per line.
 - `Checksum` / `AddChecksum` — the BIP380 checksum.
 - Sentinel errors (`ErrWatchOnlyDescriptor`, `ErrNotRootKey`,
   `ErrUnsupportedPath`, `ErrLegacyDerivationMismatch`, ...) — every `Parse`

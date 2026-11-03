@@ -6,8 +6,10 @@ import (
 
 	"github.com/btcsuite/btcd/btcutil/v2/hdkeychain"
 	"github.com/btcsuite/btcd/chaincfg/v2"
+	"github.com/btcsuite/btcwallet/waddrmgr"
 	"github.com/btcsuite/btcwallet/wallet"
 	"github.com/lightninglabs/wavelength/walletcore"
+	"github.com/lightninglabs/wavelength/walletdesc"
 	"github.com/stretchr/testify/require"
 )
 
@@ -115,6 +117,31 @@ func TestLegacyDerivationFamilyScope(t *testing.T) {
 		require.Len(t, differing, wantDiffering[name], name)
 		if name == "coin" {
 			require.Equal(t, []uint32{0}, differing)
+		}
+
+		// walletdesc.BtcwalletAccountKeys must reproduce every
+		// account btcwallet holds, quirks included.
+		keys, err := walletdesc.BtcwalletAccountKeys(root, params)
+		require.NoError(t, err)
+		exported, err := keys.Bundle()
+		require.NoError(t, err)
+		keys.Zero()
+
+		for _, acct := range exported.Accounts {
+			scope := waddrmgr.KeyScope{
+				Purpose: acct.Purpose,
+				Coin:    acct.CoinType,
+			}
+			props, err := w.AccountProperties(scope, acct.Account)
+			require.NoError(t, err)
+			have, err := walletdesc.StandardAccountPublicKey(
+				props.AccountPubKey, params,
+			)
+			require.NoError(t, err)
+			require.Equal(
+				t, have.String(), acct.Key.String(),
+				"%s: %d'/%d'", name, acct.Purpose, acct.Account,
+			)
 		}
 	}
 
