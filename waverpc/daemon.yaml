@@ -23,6 +23,9 @@ http:
     - selector: waverpc.DaemonService.ListWalletDescriptors
       post: /v1/daemon/list-wallet-descriptors
       body: "*"
+    - selector: waverpc.DaemonService.ExportWatchOnlyBundle
+      post: /v1/daemon/export-watch-only-bundle
+      body: "*"
     - selector: waverpc.DaemonService.ListArkOutputDescriptors
       post: /v1/daemon/list-ark-output-descriptors
       body: "*"

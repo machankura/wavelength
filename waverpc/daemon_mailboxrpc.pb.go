@@ -34,6 +34,8 @@ type DaemonServiceMailboxServer interface {
 	UnlockWallet(ctx context.Context, req *UnlockWalletRequest) (*UnlockWalletResponse, error)
 	// ListWalletDescriptors handles ListWalletDescriptors.
 	ListWalletDescriptors(ctx context.Context, req *ListWalletDescriptorsRequest) (*ListWalletDescriptorsResponse, error)
+	// ExportWatchOnlyBundle handles ExportWatchOnlyBundle.
+	ExportWatchOnlyBundle(ctx context.Context, req *ExportWatchOnlyBundleRequest) (*ExportWatchOnlyBundleResponse, error)
 	// ListArkOutputDescriptors handles ListArkOutputDescriptors.
 	ListArkOutputDescriptors(ctx context.Context, req *ListArkOutputDescriptorsRequest) (*ListArkOutputDescriptorsResponse, error)
 	// GetBalance handles GetBalance.
@@ -175,6 +177,16 @@ func RegisterDaemonServiceMailboxServer(r rpc.Router, impl DaemonServiceMailboxS
 		}
 
 		return impl.ListWalletDescriptors(ctx, req)
+	})
+	r.Handle("waverpc.DaemonService", "ExportWatchOnlyBundle", func() proto.Message {
+		return &ExportWatchOnlyBundleRequest{}
+	}, func(ctx context.Context, msg proto.Message) (proto.Message, error) {
+		req, ok := msg.(*ExportWatchOnlyBundleRequest)
+		if !ok {
+			return nil, fmt.Errorf("unexpected request type: %T", msg)
+		}
+
+		return impl.ExportWatchOnlyBundle(ctx, req)
 	})
 	r.Handle("waverpc.DaemonService", "ListArkOutputDescriptors", func() proto.Message {
 		return &ListArkOutputDescriptorsRequest{}
@@ -726,6 +738,29 @@ func (c *DaemonServiceMailboxClient) ListWalletDescriptors(ctx context.Context, 
 	}
 
 	resp := new(ListWalletDescriptorsResponse)
+	if err := c.C.AwaitRPC(ctx, result.CorrelationID, resp); err != nil {
+		return nil, err
+	}
+
+	return resp, nil
+}
+
+// ExportWatchOnlyBundle calls the ExportWatchOnlyBundle RPC.
+func (c *DaemonServiceMailboxClient) ExportWatchOnlyBundle(ctx context.Context, req *ExportWatchOnlyBundleRequest, opts ...rpc.RPCOptions) (*ExportWatchOnlyBundleResponse, error) {
+	var opt rpc.RPCOptions
+	if len(opts) > 0 {
+		opt = opts[0]
+	}
+
+	result, err := c.C.SendRPC(ctx, rpc.ServiceMethod{
+		Service: "waverpc.DaemonService",
+		Method:  "ExportWatchOnlyBundle",
+	}, req, opt)
+	if err != nil {
+		return nil, err
+	}
+
+	resp := new(ExportWatchOnlyBundleResponse)
 	if err := c.C.AwaitRPC(ctx, result.CorrelationID, resp); err != nil {
 		return nil, err
 	}

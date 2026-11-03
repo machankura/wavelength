@@ -40,6 +40,18 @@ service DaemonService {
     rpc ListWalletDescriptors (ListWalletDescriptorsRequest)
         returns (ListWalletDescriptorsResponse);
 
+    // ExportWatchOnlyBundle returns the bundle a watch-only daemon is
+    // created from when this wallet's keys move to a remote signer: every
+    // account public key, or with minimal the fund slots as public keys
+    // and the authentication families as private keys. The caller must
+    // resupply the wallet's mnemonic, root descriptors or account-key
+    // descriptors, which the daemon checks against the open wallet, so an
+    // unlocked daemon never reveals key material on its own. Only
+    // available in lwwallet and btcwallet mode for a wallet that holds its
+    // own keys, once it is ready.
+    rpc ExportWatchOnlyBundle (ExportWatchOnlyBundleRequest)
+        returns (ExportWatchOnlyBundleResponse);
+
     // ListArkOutputDescriptors returns one rawtr() output descriptor for
     // every Ark output the wallet knows about: boarding outputs, live VTXOs
     // (which reach the chain on a unilateral exit) and out-of-round receive
@@ -645,6 +657,36 @@ message ListWalletDescriptorsResponse {
 
     // includes_private reports whether descriptors contain private keys.
     bool includes_private = 3;
+}
+
+message ExportWatchOnlyBundleRequest {
+    // minimal asks for a split-signing bundle, which holds the
+    // authentication families' private keys.
+    bool minimal = 1;
+
+    // mnemonic is the wallet's 24-word aezeed mnemonic. Exactly one of
+    // mnemonic and descriptors is required.
+    repeated string mnemonic = 2;
+
+    // seed_passphrase is the optional aezeed passphrase for mnemonic.
+    bytes seed_passphrase = 3;
+
+    // descriptors are the wallet's private root descriptors, or the
+    // account-level private keys an account-key wallet was created from.
+    repeated string descriptors = 4;
+}
+
+message ExportWatchOnlyBundleResponse {
+    // bundle is the watch-only bundle text, one checksummed entry per
+    // line, as `wavecli create --watch-only-bundle-file` reads it.
+    string bundle = 1;
+
+    // minimal reports whether bundle holds private keys.
+    bool minimal = 2;
+
+    // root_fingerprint is the hex-encoded fingerprint the bundle's keys
+    // descend from.
+    string root_fingerprint = 3;
 }
 
 // ArkOutputKind classifies an exported Ark output.

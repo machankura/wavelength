@@ -24,6 +24,7 @@ const (
 	DaemonService_InitWallet_FullMethodName                                     = "/waverpc.DaemonService/InitWallet"
 	DaemonService_UnlockWallet_FullMethodName                                   = "/waverpc.DaemonService/UnlockWallet"
 	DaemonService_ListWalletDescriptors_FullMethodName                          = "/waverpc.DaemonService/ListWalletDescriptors"
+	DaemonService_ExportWatchOnlyBundle_FullMethodName                          = "/waverpc.DaemonService/ExportWatchOnlyBundle"
 	DaemonService_ListArkOutputDescriptors_FullMethodName                       = "/waverpc.DaemonService/ListArkOutputDescriptors"
 	DaemonService_GetBalance_FullMethodName                                     = "/waverpc.DaemonService/GetBalance"
 	DaemonService_ListVTXOs_FullMethodName                                      = "/waverpc.DaemonService/ListVTXOs"
@@ -104,6 +105,16 @@ type DaemonServiceClient interface {
 	// reveals key material on its own. Only available in lwwallet and
 	// btcwallet mode once the wallet is ready.
 	ListWalletDescriptors(ctx context.Context, in *ListWalletDescriptorsRequest, opts ...grpc.CallOption) (*ListWalletDescriptorsResponse, error)
+	// ExportWatchOnlyBundle returns the bundle a watch-only daemon is
+	// created from when this wallet's keys move to a remote signer: every
+	// account public key, or with minimal the fund slots as public keys
+	// and the authentication families as private keys. The caller must
+	// resupply the wallet's mnemonic, root descriptors or account-key
+	// descriptors, which the daemon checks against the open wallet, so an
+	// unlocked daemon never reveals key material on its own. Only
+	// available in lwwallet and btcwallet mode for a wallet that holds its
+	// own keys, once it is ready.
+	ExportWatchOnlyBundle(ctx context.Context, in *ExportWatchOnlyBundleRequest, opts ...grpc.CallOption) (*ExportWatchOnlyBundleResponse, error)
 	// ListArkOutputDescriptors returns one rawtr() output descriptor for
 	// every Ark output the wallet knows about: boarding outputs, live VTXOs
 	// (which reach the chain on a unilateral exit) and out-of-round receive
@@ -341,6 +352,16 @@ func (c *daemonServiceClient) ListWalletDescriptors(ctx context.Context, in *Lis
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(ListWalletDescriptorsResponse)
 	err := c.cc.Invoke(ctx, DaemonService_ListWalletDescriptors_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *daemonServiceClient) ExportWatchOnlyBundle(ctx context.Context, in *ExportWatchOnlyBundleRequest, opts ...grpc.CallOption) (*ExportWatchOnlyBundleResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ExportWatchOnlyBundleResponse)
+	err := c.cc.Invoke(ctx, DaemonService_ExportWatchOnlyBundle_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -830,6 +851,16 @@ type DaemonServiceServer interface {
 	// reveals key material on its own. Only available in lwwallet and
 	// btcwallet mode once the wallet is ready.
 	ListWalletDescriptors(context.Context, *ListWalletDescriptorsRequest) (*ListWalletDescriptorsResponse, error)
+	// ExportWatchOnlyBundle returns the bundle a watch-only daemon is
+	// created from when this wallet's keys move to a remote signer: every
+	// account public key, or with minimal the fund slots as public keys
+	// and the authentication families as private keys. The caller must
+	// resupply the wallet's mnemonic, root descriptors or account-key
+	// descriptors, which the daemon checks against the open wallet, so an
+	// unlocked daemon never reveals key material on its own. Only
+	// available in lwwallet and btcwallet mode for a wallet that holds its
+	// own keys, once it is ready.
+	ExportWatchOnlyBundle(context.Context, *ExportWatchOnlyBundleRequest) (*ExportWatchOnlyBundleResponse, error)
 	// ListArkOutputDescriptors returns one rawtr() output descriptor for
 	// every Ark output the wallet knows about: boarding outputs, live VTXOs
 	// (which reach the chain on a unilateral exit) and out-of-round receive
@@ -1037,6 +1068,9 @@ func (UnimplementedDaemonServiceServer) UnlockWallet(context.Context, *UnlockWal
 }
 func (UnimplementedDaemonServiceServer) ListWalletDescriptors(context.Context, *ListWalletDescriptorsRequest) (*ListWalletDescriptorsResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ListWalletDescriptors not implemented")
+}
+func (UnimplementedDaemonServiceServer) ExportWatchOnlyBundle(context.Context, *ExportWatchOnlyBundleRequest) (*ExportWatchOnlyBundleResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ExportWatchOnlyBundle not implemented")
 }
 func (UnimplementedDaemonServiceServer) ListArkOutputDescriptors(context.Context, *ListArkOutputDescriptorsRequest) (*ListArkOutputDescriptorsResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ListArkOutputDescriptors not implemented")
@@ -1277,6 +1311,24 @@ func _DaemonService_ListWalletDescriptors_Handler(srv interface{}, ctx context.C
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(DaemonServiceServer).ListWalletDescriptors(ctx, req.(*ListWalletDescriptorsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _DaemonService_ExportWatchOnlyBundle_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ExportWatchOnlyBundleRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(DaemonServiceServer).ExportWatchOnlyBundle(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: DaemonService_ExportWatchOnlyBundle_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(DaemonServiceServer).ExportWatchOnlyBundle(ctx, req.(*ExportWatchOnlyBundleRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -2092,6 +2144,10 @@ var DaemonService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "ListWalletDescriptors",
 			Handler:    _DaemonService_ListWalletDescriptors_Handler,
+		},
+		{
+			MethodName: "ExportWatchOnlyBundle",
+			Handler:    _DaemonService_ExportWatchOnlyBundle_Handler,
 		},
 		{
 			MethodName: "ListArkOutputDescriptors",
