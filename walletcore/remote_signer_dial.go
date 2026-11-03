@@ -5,6 +5,7 @@ package walletcore
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/lightningnetwork/lnd/lncfg"
 	"github.com/lightningnetwork/lnd/lnwallet/rpcwallet"
@@ -27,5 +28,23 @@ func DialRemoteSigner(ctx context.Context,
 		return nil, fmt.Errorf("connect to remote signer: %w", err)
 	}
 
-	return conn, nil
+	return &outboundConn{
+		OutboundConnection: conn,
+		requestTimeout:     cfg.RequestTimeout,
+	}, nil
+}
+
+// outboundConn bounds each request by the configured request timeout.
+// lnd's OutboundConnection answers RequestTimeout with its connection
+// timeout and ignores ExperimentalRequestTimeout, and the RPC key ring
+// reads RequestTimeout once to bound every signing call.
+type outboundConn struct {
+	*rpcwallet.OutboundConnection
+
+	requestTimeout time.Duration
+}
+
+// RequestTimeout returns the configured per-request timeout.
+func (c *outboundConn) RequestTimeout() time.Duration {
+	return c.requestTimeout
 }
