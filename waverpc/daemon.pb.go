@@ -980,7 +980,10 @@ type GetInfoResponse struct {
 	// current daemon implementation does not yet refresh this snapshot
 	// after bootstrap, so callers should treat it as the latest known
 	// terms for the current session.
-	ServerInfo    *ServerInfo `protobuf:"bytes,11,opt,name=server_info,json=serverInfo,proto3" json:"server_info,omitempty"`
+	ServerInfo *ServerInfo `protobuf:"bytes,11,opt,name=server_info,json=serverInfo,proto3" json:"server_info,omitempty"`
+	// manifest_hash is the hex SHA-256 of the canonical manifest a
+	// remote-signing wallet was created from, or empty.
+	ManifestHash  string `protobuf:"bytes,12,opt,name=manifest_hash,json=manifestHash,proto3" json:"manifest_hash,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1090,6 +1093,13 @@ func (x *GetInfoResponse) GetServerInfo() *ServerInfo {
 		return x.ServerInfo
 	}
 	return nil
+}
+
+func (x *GetInfoResponse) GetManifestHash() string {
+	if x != nil {
+		return x.ManifestHash
+	}
+	return ""
 }
 
 // ServerInfo contains operator terms and metadata fetched from the Ark
@@ -1414,8 +1424,22 @@ type InitWalletRequest struct {
 	// descriptors, and required when the daemon signs remotely.
 	// birthday_unix bounds the first rescan as it does for descriptors.
 	WatchOnlyBundle []byte `protobuf:"bytes,8,opt,name=watch_only_bundle,json=watchOnlyBundle,proto3" json:"watch_only_bundle,omitempty"`
-	unknownFields   protoimpl.UnknownFields
-	sizeCache       protoimpl.SizeCache
+	// watch_only_manifest assigns each fund slot (the on-chain account and
+	// key families 6, 42, 44, 45, 202) a key from any source, for a wallet
+	// whose slots do not all come from one root. It is the manifest
+	// `wavesigner export-watchonly --manifest-out` writes, and needs
+	// auth_keys and wallet.remotesigner. Mutually exclusive with every
+	// other creation input.
+	WatchOnlyManifest []byte `protobuf:"bytes,9,opt,name=watch_only_manifest,json=watchOnlyManifest,proto3" json:"watch_only_manifest,omitempty"`
+	// auth_keys holds the authentication families' private keys that go
+	// with watch_only_manifest, as `--auth-keys-out` writes them. Secret.
+	AuthKeys []byte `protobuf:"bytes,10,opt,name=auth_keys,json=authKeys,proto3" json:"auth_keys,omitempty"`
+	// override_identity allows a manifest that replaces key family 6,
+	// which gives the new wallet a different identity, mailbox and swap
+	// key. Without it such a manifest is refused.
+	OverrideIdentity bool `protobuf:"varint,11,opt,name=override_identity,json=overrideIdentity,proto3" json:"override_identity,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
 }
 
 func (x *InitWalletRequest) Reset() {
@@ -1504,6 +1528,27 @@ func (x *InitWalletRequest) GetWatchOnlyBundle() []byte {
 	return nil
 }
 
+func (x *InitWalletRequest) GetWatchOnlyManifest() []byte {
+	if x != nil {
+		return x.WatchOnlyManifest
+	}
+	return nil
+}
+
+func (x *InitWalletRequest) GetAuthKeys() []byte {
+	if x != nil {
+		return x.AuthKeys
+	}
+	return nil
+}
+
+func (x *InitWalletRequest) GetOverrideIdentity() bool {
+	if x != nil {
+		return x.OverrideIdentity
+	}
+	return false
+}
+
 type InitWalletResponse struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// identity_pubkey is the hex-encoded daemon wallet identity public key
@@ -1535,8 +1580,12 @@ type InitWalletResponse struct {
 	// root_fingerprint is the hex-encoded BIP32 fingerprint of the wallet's
 	// master key.
 	RootFingerprint string `protobuf:"bytes,9,opt,name=root_fingerprint,json=rootFingerprint,proto3" json:"root_fingerprint,omitempty"`
-	unknownFields   protoimpl.UnknownFields
-	sizeCache       protoimpl.SizeCache
+	// manifest_hash is the hex SHA-256 of the canonical manifest the
+	// wallet was created from, when it was created from one. Keep it with
+	// the manifest backup to check the backup later.
+	ManifestHash  string `protobuf:"bytes,10,opt,name=manifest_hash,json=manifestHash,proto3" json:"manifest_hash,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *InitWalletResponse) Reset() {
@@ -1628,6 +1677,13 @@ func (x *InitWalletResponse) GetDescriptors() []string {
 func (x *InitWalletResponse) GetRootFingerprint() string {
 	if x != nil {
 		return x.RootFingerprint
+	}
+	return ""
+}
+
+func (x *InitWalletResponse) GetManifestHash() string {
+	if x != nil {
+		return x.ManifestHash
 	}
 	return ""
 }
@@ -11604,7 +11660,7 @@ var File_daemon_proto protoreflect.FileDescriptor
 const file_daemon_proto_rawDesc = "" +
 	"\n" +
 	"\fdaemon.proto\x12\awaverpc\"\x10\n" +
-	"\x0eGetInfoRequest\"\xb1\x03\n" +
+	"\x0eGetInfoRequest\"\xd6\x03\n" +
 	"\x0fGetInfoResponse\x12\x18\n" +
 	"\aversion\x18\x01 \x01(\tR\aversion\x12\x16\n" +
 	"\x06commit\x18\x02 \x01(\tR\x06commit\x12\x18\n" +
@@ -11619,7 +11675,8 @@ const file_daemon_proto_rawDesc = "" +
 	"\x0fidentity_pubkey\x18\n" +
 	" \x01(\tR\x0eidentityPubkey\x124\n" +
 	"\vserver_info\x18\v \x01(\v2\x13.waverpc.ServerInfoR\n" +
-	"serverInfo\"\xbb\x04\n" +
+	"serverInfo\x12#\n" +
+	"\rmanifest_hash\x18\f \x01(\tR\fmanifestHash\"\xbb\x04\n" +
 	"\n" +
 	"ServerInfo\x12'\n" +
 	"\x0foperator_pubkey\x18\x01 \x01(\fR\x0eoperatorPubkey\x12.\n" +
@@ -11641,7 +11698,7 @@ const file_daemon_proto_rawDesc = "" +
 	"\x0fseed_passphrase\x18\x01 \x01(\fR\x0eseedPassphrase\"V\n" +
 	"\x0fGenSeedResponse\x12\x1a\n" +
 	"\bmnemonic\x18\x01 \x03(\tR\bmnemonic\x12'\n" +
-	"\x0fenciphered_seed\x18\x02 \x01(\fR\x0eencipheredSeed\"\xc2\x02\n" +
+	"\x0fenciphered_seed\x18\x02 \x01(\fR\x0eencipheredSeed\"\xbc\x03\n" +
 	"\x11InitWalletRequest\x12\x1a\n" +
 	"\bmnemonic\x18\x01 \x03(\tR\bmnemonic\x12'\n" +
 	"\x0fwallet_password\x18\x02 \x01(\fR\x0ewalletPassword\x12'\n" +
@@ -11650,7 +11707,11 @@ const file_daemon_proto_rawDesc = "" +
 	"\x0frecovery_window\x18\x05 \x01(\rR\x0erecoveryWindow\x12 \n" +
 	"\vdescriptors\x18\x06 \x03(\tR\vdescriptors\x12#\n" +
 	"\rbirthday_unix\x18\a \x01(\x03R\fbirthdayUnix\x12*\n" +
-	"\x11watch_only_bundle\x18\b \x01(\fR\x0fwatchOnlyBundle\"\xc7\x03\n" +
+	"\x11watch_only_bundle\x18\b \x01(\fR\x0fwatchOnlyBundle\x12.\n" +
+	"\x13watch_only_manifest\x18\t \x01(\fR\x11watchOnlyManifest\x12\x1b\n" +
+	"\tauth_keys\x18\n" +
+	" \x01(\fR\bauthKeys\x12+\n" +
+	"\x11override_identity\x18\v \x01(\bR\x10overrideIdentity\"\xec\x03\n" +
 	"\x12InitWalletResponse\x12'\n" +
 	"\x0fidentity_pubkey\x18\x01 \x01(\tR\x0eidentityPubkey\x12!\n" +
 	"\frecovery_ran\x18\x02 \x01(\bR\vrecoveryRan\x12@\n" +
@@ -11660,7 +11721,9 @@ const file_daemon_proto_rawDesc = "" +
 	"\x1drecovered_oor_receive_scripts\x18\x06 \x01(\rR\x1arecoveredOorReceiveScripts\x120\n" +
 	"\x14recovered_oor_events\x18\a \x01(\rR\x12recoveredOorEvents\x12 \n" +
 	"\vdescriptors\x18\b \x03(\tR\vdescriptors\x12)\n" +
-	"\x10root_fingerprint\x18\t \x01(\tR\x0frootFingerprint\">\n" +
+	"\x10root_fingerprint\x18\t \x01(\tR\x0frootFingerprint\x12#\n" +
+	"\rmanifest_hash\x18\n" +
+	" \x01(\tR\fmanifestHash\">\n" +
 	"\x13UnlockWalletRequest\x12'\n" +
 	"\x0fwallet_password\x18\x01 \x01(\fR\x0ewalletPassword\"?\n" +
 	"\x14UnlockWalletResponse\x12'\n" +

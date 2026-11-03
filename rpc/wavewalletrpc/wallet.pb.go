@@ -768,8 +768,14 @@ type CreateRequest struct {
 	// private keys stay on a remote signer. See
 	// waverpc.InitWalletRequest.watch_only_bundle for the accepted forms.
 	WatchOnlyBundle []byte `protobuf:"bytes,8,opt,name=watch_only_bundle,json=watchOnlyBundle,proto3" json:"watch_only_bundle,omitempty"`
-	unknownFields   protoimpl.UnknownFields
-	sizeCache       protoimpl.SizeCache
+	// watch_only_manifest, auth_keys and override_identity create a
+	// wallet whose fund slots come from several keys. See
+	// waverpc.InitWalletRequest for each.
+	WatchOnlyManifest []byte `protobuf:"bytes,9,opt,name=watch_only_manifest,json=watchOnlyManifest,proto3" json:"watch_only_manifest,omitempty"`
+	AuthKeys          []byte `protobuf:"bytes,10,opt,name=auth_keys,json=authKeys,proto3" json:"auth_keys,omitempty"`
+	OverrideIdentity  bool   `protobuf:"varint,11,opt,name=override_identity,json=overrideIdentity,proto3" json:"override_identity,omitempty"`
+	unknownFields     protoimpl.UnknownFields
+	sizeCache         protoimpl.SizeCache
 }
 
 func (x *CreateRequest) Reset() {
@@ -858,6 +864,27 @@ func (x *CreateRequest) GetWatchOnlyBundle() []byte {
 	return nil
 }
 
+func (x *CreateRequest) GetWatchOnlyManifest() []byte {
+	if x != nil {
+		return x.WatchOnlyManifest
+	}
+	return nil
+}
+
+func (x *CreateRequest) GetAuthKeys() []byte {
+	if x != nil {
+		return x.AuthKeys
+	}
+	return nil
+}
+
+func (x *CreateRequest) GetOverrideIdentity() bool {
+	if x != nil {
+		return x.OverrideIdentity
+	}
+	return false
+}
+
 // CreateResponse returns the wallet mnemonic and identity, plus a summary of
 // any Ark-state recovery performed during Create.
 type CreateResponse struct {
@@ -895,8 +922,11 @@ type CreateResponse struct {
 	// root_fingerprint is the hex-encoded BIP32 fingerprint of the wallet's
 	// master key.
 	RootFingerprint string `protobuf:"bytes,10,opt,name=root_fingerprint,json=rootFingerprint,proto3" json:"root_fingerprint,omitempty"`
-	unknownFields   protoimpl.UnknownFields
-	sizeCache       protoimpl.SizeCache
+	// manifest_hash is the hex SHA-256 of the manifest the wallet was
+	// created from, when it was created from one.
+	ManifestHash  string `protobuf:"bytes,11,opt,name=manifest_hash,json=manifestHash,proto3" json:"manifest_hash,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *CreateResponse) Reset() {
@@ -995,6 +1025,13 @@ func (x *CreateResponse) GetDescriptors() []string {
 func (x *CreateResponse) GetRootFingerprint() string {
 	if x != nil {
 		return x.RootFingerprint
+	}
+	return ""
+}
+
+func (x *CreateResponse) GetManifestHash() string {
+	if x != nil {
+		return x.ManifestHash
 	}
 	return ""
 }
@@ -5877,7 +5914,7 @@ var File_wallet_proto protoreflect.FileDescriptor
 
 const file_wallet_proto_rawDesc = "" +
 	"\n" +
-	"\fwallet.proto\x12\rwavewalletrpc\"\xbe\x02\n" +
+	"\fwallet.proto\x12\rwavewalletrpc\"\xb8\x03\n" +
 	"\rCreateRequest\x12'\n" +
 	"\x0fwallet_password\x18\x01 \x01(\fR\x0ewalletPassword\x12'\n" +
 	"\x0fseed_passphrase\x18\x02 \x01(\fR\x0eseedPassphrase\x12\x1a\n" +
@@ -5886,7 +5923,11 @@ const file_wallet_proto_rawDesc = "" +
 	"\x0frecovery_window\x18\x05 \x01(\rR\x0erecoveryWindow\x12 \n" +
 	"\vdescriptors\x18\x06 \x03(\tR\vdescriptors\x12#\n" +
 	"\rbirthday_unix\x18\a \x01(\x03R\fbirthdayUnix\x12*\n" +
-	"\x11watch_only_bundle\x18\b \x01(\fR\x0fwatchOnlyBundle\"\xdf\x03\n" +
+	"\x11watch_only_bundle\x18\b \x01(\fR\x0fwatchOnlyBundle\x12.\n" +
+	"\x13watch_only_manifest\x18\t \x01(\fR\x11watchOnlyManifest\x12\x1b\n" +
+	"\tauth_keys\x18\n" +
+	" \x01(\fR\bauthKeys\x12+\n" +
+	"\x11override_identity\x18\v \x01(\bR\x10overrideIdentity\"\x84\x04\n" +
 	"\x0eCreateResponse\x12\x1a\n" +
 	"\bmnemonic\x18\x01 \x03(\tR\bmnemonic\x12'\n" +
 	"\x0fidentity_pubkey\x18\x02 \x01(\tR\x0eidentityPubkey\x12!\n" +
@@ -5898,7 +5939,8 @@ const file_wallet_proto_rawDesc = "" +
 	"\x14recovered_oor_events\x18\b \x01(\rR\x12recoveredOorEvents\x12 \n" +
 	"\vdescriptors\x18\t \x03(\tR\vdescriptors\x12)\n" +
 	"\x10root_fingerprint\x18\n" +
-	" \x01(\tR\x0frootFingerprint\"8\n" +
+	" \x01(\tR\x0frootFingerprint\x12#\n" +
+	"\rmanifest_hash\x18\v \x01(\tR\fmanifestHash\"8\n" +
 	"\rUnlockRequest\x12'\n" +
 	"\x0fwallet_password\x18\x01 \x01(\fR\x0ewalletPassword\"9\n" +
 	"\x0eUnlockResponse\x12'\n" +

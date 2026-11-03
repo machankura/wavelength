@@ -282,6 +282,13 @@ message CreateRequest {
     // private keys stay on a remote signer. See
     // waverpc.InitWalletRequest.watch_only_bundle for the accepted forms.
     bytes watch_only_bundle = 8;
+
+    // watch_only_manifest, auth_keys and override_identity create a
+    // wallet whose fund slots come from several keys. See
+    // waverpc.InitWalletRequest for each.
+    bytes watch_only_manifest = 9;
+    bytes auth_keys = 10;
+    bool override_identity = 11;
 }
 
 // CreateResponse returns the wallet mnemonic and identity, plus a summary of
@@ -329,6 +336,10 @@ message CreateResponse {
     // root_fingerprint is the hex-encoded BIP32 fingerprint of the wallet's
     // master key.
     string root_fingerprint = 10;
+
+    // manifest_hash is the hex SHA-256 of the manifest the wallet was
+    // created from, when it was created from one.
+    string manifest_hash = 11;
 }
 
 // UnlockRequest carries the password used to decrypt the on-disk seed for

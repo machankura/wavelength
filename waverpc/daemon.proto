@@ -398,6 +398,10 @@ message GetInfoResponse {
     // after bootstrap, so callers should treat it as the latest known
     // terms for the current session.
     ServerInfo server_info = 11;
+
+    // manifest_hash is the hex SHA-256 of the canonical manifest a
+    // remote-signing wallet was created from, or empty.
+    string manifest_hash = 12;
 }
 
 // ServerInfo contains operator terms and metadata fetched from the Ark
@@ -534,6 +538,23 @@ message InitWalletRequest {
     // descriptors, and required when the daemon signs remotely.
     // birthday_unix bounds the first rescan as it does for descriptors.
     bytes watch_only_bundle = 8;
+
+    // watch_only_manifest assigns each fund slot (the on-chain account and
+    // key families 6, 42, 44, 45, 202) a key from any source, for a wallet
+    // whose slots do not all come from one root. It is the manifest
+    // `wavesigner export-watchonly --manifest-out` writes, and needs
+    // auth_keys and wallet.remotesigner. Mutually exclusive with every
+    // other creation input.
+    bytes watch_only_manifest = 9;
+
+    // auth_keys holds the authentication families' private keys that go
+    // with watch_only_manifest, as `--auth-keys-out` writes them. Secret.
+    bytes auth_keys = 10;
+
+    // override_identity allows a manifest that replaces key family 6,
+    // which gives the new wallet a different identity, mailbox and swap
+    // key. Without it such a manifest is refused.
+    bool override_identity = 11;
 }
 
 message InitWalletResponse {
@@ -574,6 +595,11 @@ message InitWalletResponse {
     // root_fingerprint is the hex-encoded BIP32 fingerprint of the wallet's
     // master key.
     string root_fingerprint = 9;
+
+    // manifest_hash is the hex SHA-256 of the canonical manifest the
+    // wallet was created from, when it was created from one. Keep it with
+    // the manifest backup to check the backup later.
+    string manifest_hash = 10;
 }
 
 message UnlockWalletRequest {
