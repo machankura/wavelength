@@ -65,8 +65,12 @@ func newCreateCmd() *cobra.Command {
 			"the daemon's wallet.remotesigner. The bundle is " +
 			"the signer's `lncli wallet accounts list` JSON, " +
 			"or one account descriptor or key family entry per " +
-			"line; see docs/daemon_cli_guide.md. --birthday " +
-			"applies as for descriptors.\n\n" +
+			"line; see docs/daemon_cli_guide.md. A minimal " +
+			"bundle, which also carries the two authentication " +
+			"families as private keys, splits signing: fund " +
+			"keys stay on the signer and the daemon signs " +
+			"authentication itself. --birthday applies as for " +
+			"descriptors.\n\n" +
 			"Example:\n" +
 			"  printf '%s\\n' 'hunter2hunter2' | " +
 			"wavecli create --password-stdin\n" +
@@ -418,9 +422,10 @@ func clearStrings(values []string) {
 // account list is around 100 KiB.
 const maxWatchOnlyBundleBytes = 1 << 20
 
-// readWatchOnlyBundleFile reads a watch-only bundle. It holds public keys
-// only, so unlike a descriptor file it is not treated as a secret; the
-// daemon parses and validates it.
+// readWatchOnlyBundleFile reads a watch-only bundle. A full bundle holds
+// public keys only; a minimal one also carries the authentication keys, so
+// a minimal bundle readable by other users gets a warning. The daemon
+// parses and validates it.
 func readWatchOnlyBundleFile(path string) ([]byte, error) {
 	info, err := os.Stat(path)
 	if err != nil {
@@ -441,6 +446,17 @@ func readWatchOnlyBundleFile(path string) ([]byte, error) {
 	}
 	if len(strings.TrimSpace(string(data))) == 0 {
 		return nil, fmt.Errorf("watch-only bundle %s is empty", path)
+	}
+
+	// A minimal bundle carries the authentication keys as private keys.
+	hasPrivate := strings.Contains(string(data), "xprv") ||
+		strings.Contains(string(data), "tprv")
+	if hasPrivate && info.Mode().Perm()&0o077 != 0 {
+		fmt.Fprintf(
+			os.Stderr, "warning: bundle %s holds private keys "+
+				"and is readable by other users (mode %04o)\n",
+			path, info.Mode().Perm(),
+		)
 	}
 
 	return data, nil

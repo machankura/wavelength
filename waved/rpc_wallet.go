@@ -761,6 +761,10 @@ type walletCreateInput struct {
 	// keys; it needs wallet.remotesigner and excludes seed and rootKey.
 	watchOnly *walletdesc.WatchOnlyBundle
 
+	// watchOnlyMinimal creates a split-signing wallet instead: fund keys
+	// on the remote signer, authentication keys kept by the daemon.
+	watchOnlyMinimal *walletdesc.MinimalBundle
+
 	// accountKeys creates a wallet from account-level private keys that
 	// it signs with in process; it excludes every other input.
 	accountKeys *walletdesc.AccountKeys

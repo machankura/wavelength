@@ -431,3 +431,89 @@ func TestPrepareWalletCreateInputAccountKeys(t *testing.T) {
 		"zero must wipe the account keys",
 	)
 }
+
+// TestPrepareWalletCreateInputMinimalBundle checks a minimal bundle in
+// watch_only_bundle prepares a split-signing creation input: the
+// authentication keys travel with it, its public descriptor matches the
+// mnemonic's, and zero wipes the keys.
+func TestPrepareWalletCreateInputMinimalBundle(t *testing.T) {
+	t.Parallel()
+
+	mnemonic, root := compatibleTestMnemonic(t)
+	fp, err := walletdesc.Fingerprint(root)
+	require.NoError(t, err)
+	origin := walletdesc.FormatFingerprint(fp)
+	params := &chaincfg.RegressionNetParams
+
+	derive := func(path ...uint32) *hdkeychain.ExtendedKey {
+		key := root
+		for _, step := range path {
+			key, err = key.Derive(
+				hdkeychain.HardenedKeyStart + step,
+			)
+			require.NoError(t, err)
+		}
+
+		return key
+	}
+	public := func(path ...uint32) string {
+		pub, err := walletdesc.StandardAccountPublicKey(
+			derive(path...), params,
+		)
+		require.NoError(t, err)
+
+		return pub.String()
+	}
+
+	lines := []string{fmt.Sprintf("tr([%s/86h/0h/0h]%s/<0;1>/*)", origin,
+		public(86, 0, 0))}
+	for _, family := range []uint32{6, 42, 44, 45, 202} {
+		lines = append(
+			lines,
+			fmt.Sprintf(
+				"[%s/1017h/1h/%dh]%s/0/*", origin, family,
+				public(1017, 1, family),
+			),
+		)
+	}
+	for _, family := range []uint32{21, 43} {
+		lines = append(
+			lines,
+			fmt.Sprintf(
+				"[%s/1017h/1h/%dh]%s/0/*", origin, family,
+				derive(1017, 1, family),
+			),
+		)
+	}
+
+	fromMnemonic, err := prepareWalletCreateInput(
+		&waverpc.InitWalletRequest{
+			Mnemonic:       mnemonic[:],
+			WalletPassword: []byte(testDescriptorPassword),
+		}, "regtest",
+	)
+	require.NoError(t, err)
+	defer fromMnemonic.zero()
+
+	prepared, err := prepareWalletCreateInput(
+		&waverpc.InitWalletRequest{
+			WatchOnlyBundle: []byte(strings.Join(lines, "\n")),
+			WalletPassword:  []byte(testDescriptorPassword),
+		}, "regtest",
+	)
+	require.NoError(t, err)
+
+	require.Nil(t, prepared.input.watchOnly)
+	require.NotNil(t, prepared.input.watchOnlyMinimal)
+	require.Equal(t, db.WalletKeySourceWatchOnly, prepared.source)
+	require.Equal(t, fromMnemonic.rootFingerprint, prepared.rootFingerprint)
+	require.Len(t, prepared.publicDescriptors, 1)
+	require.Contains(
+		t, fromMnemonic.publicDescriptors,
+		prepared.publicDescriptors[0],
+	)
+
+	prepared.zero()
+	local := prepared.input.watchOnlyMinimal.Local.Accounts[0].Key
+	require.NotEqual(t, derive(1017, 1, 21).String(), local.String())
+}

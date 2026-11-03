@@ -97,28 +97,39 @@ func prepareWalletCreateInput(req *waverpc.InitWalletRequest,
 			return nil, err
 		}
 
-		bundle, err := walletdesc.ParseWatchOnlyBundle(
+		bundle, minimal, err := walletdesc.ParseBundle(
 			req.GetWatchOnlyBundle(), chainParams,
 		)
 		if err != nil {
 			return nil, err
 		}
 
-		public, err := watchOnlyPublicDescriptors(bundle, chainParams)
-		if err != nil {
-			return nil, err
+		prepared := &preparedWalletCreate{
+			input: walletCreateInput{
+				watchOnly:        bundle,
+				watchOnlyMinimal: minimal,
+				birthday:         birthday,
+			},
+			source: db.WalletKeySourceWatchOnly,
+			zero:   func() {},
+		}
+		if minimal != nil {
+			// A minimal bundle carries the authentication keys,
+			// which the wallet stores once it is created.
+			bundle = minimal.Public
+			prepared.zero = minimal.Zero
 		}
 
-		return &preparedWalletCreate{
-			input: walletCreateInput{
-				watchOnly: bundle,
-				birthday:  birthday,
-			},
-			publicDescriptors: public,
-			rootFingerprint:   bundle.MasterFingerprint,
-			source:            db.WalletKeySourceWatchOnly,
-			zero:              func() {},
-		}, nil
+		public, err := watchOnlyPublicDescriptors(bundle, chainParams)
+		if err != nil {
+			prepared.zero()
+
+			return nil, err
+		}
+		prepared.publicDescriptors = public
+		prepared.rootFingerprint = bundle.MasterFingerprint
+
+		return prepared, nil
 	}
 
 	// Account key path: account-level private keys, signed with in
