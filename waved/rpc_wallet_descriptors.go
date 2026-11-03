@@ -160,7 +160,10 @@ func (r *RPCServer) privateWalletDescriptors(ctx context.Context,
 	*waverpc.ListWalletDescriptorsResponse, error) {
 
 	network := r.server.cfg.Network
-	root, source, err := rootFromExportRequest(req, network)
+	root, source, err := rootFromExportRequest(
+		req.GetMnemonic(), req.GetSeedPassphrase(),
+		req.GetDescriptors(), network,
+	)
 	if err != nil {
 		return nil, status.Errorf(codes.InvalidArgument, "%v", err)
 	}
@@ -204,18 +207,19 @@ func (r *RPCServer) privateWalletDescriptors(ctx context.Context,
 	return resp, nil
 }
 
-// rootFromExportRequest derives the master key from the request's mnemonic
-// or root descriptors. The caller must zero the result.
-func rootFromExportRequest(req *waverpc.ListWalletDescriptorsRequest,
-	network string) (*hdkeychain.ExtendedKey, db.WalletKeySource, error) {
+// rootFromExportRequest derives the master key from an export request's
+// mnemonic or root descriptors. The caller must zero the result.
+func rootFromExportRequest(mnemonic []string, seedPassphrase []byte,
+	descriptors []string, network string) (*hdkeychain.ExtendedKey,
+	db.WalletKeySource, error) {
 
 	chainParams, err := networkToChainParams(network)
 	if err != nil {
 		return nil, 0, err
 	}
 
-	if len(req.GetDescriptors()) > 0 {
-		wd, err := walletdesc.Parse(req.GetDescriptors(), chainParams)
+	if len(descriptors) > 0 {
+		wd, err := walletdesc.Parse(descriptors, chainParams)
 		if err != nil {
 			return nil, 0, err
 		}
@@ -223,9 +227,7 @@ func rootFromExportRequest(req *waverpc.ListWalletDescriptorsRequest,
 		return wd.Root, db.WalletKeySourceDescriptors, nil
 	}
 
-	seed, _, err := MnemonicSeed(
-		req.GetMnemonic(), req.GetSeedPassphrase(),
-	)
+	seed, _, err := MnemonicSeed(mnemonic, seedPassphrase)
 	if err != nil {
 		return nil, 0, err
 	}

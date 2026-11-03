@@ -342,6 +342,47 @@ func walletAdminMethodRegistry() []schemaMethod {
 			JSONInput:    false,
 		},
 		{
+			Method: "export-watchonly",
+			Description: "Write the wallet's watch-only " +
+				"bundle",
+			Params: []schemaParam{
+				{
+					Name:        "output",
+					Type:        "string",
+					Description: "bundle file to write",
+				},
+				{
+					Name: "minimal",
+					Type: "bool",
+					Description: "write a minimal " +
+						"bundle for split signing",
+				},
+				{
+					Name: "mnemonic-file",
+					Type: "string",
+					Description: "path to the " +
+						"wallet's aezeed mnemonic",
+				},
+				{
+					Name: "seed-passphrase-file",
+					Type: "string",
+					Description: "path to file " +
+						"containing the optional " +
+						"aezeed passphrase",
+				},
+				{
+					Name: "descriptor-file",
+					Type: "string",
+					Description: "path to the " +
+						"wallet's root descriptors " +
+						"or account keys",
+				},
+			},
+			RequestType:  "ExportWatchOnlyBundleRequest",
+			ResponseType: "ExportWatchOnlyBundleResponse",
+			JSONInput:    false,
+		},
+		{
 			Method:       "getinfo",
 			Description:  "Display daemon status information",
 			Params:       nil,

@@ -353,6 +353,19 @@ func (c *DaemonServiceClient) ListWalletDescriptors(ctx context.Context,
 	return out, err
 }
 
+// ExportWatchOnlyBundle returns the open wallet's watch-only bundle.
+func (c *DaemonServiceClient) ExportWatchOnlyBundle(ctx context.Context,
+	in *waverpc.ExportWatchOnlyBundleRequest, _ ...grpc.CallOption) (
+	*waverpc.ExportWatchOnlyBundleResponse, error) {
+
+	out := new(waverpc.ExportWatchOnlyBundleResponse)
+	err := c.client.Post(
+		ctx, "/v1/daemon/export-watch-only-bundle", in, out,
+	)
+
+	return out, err
+}
+
 // ListArkOutputDescriptors returns rawtr() descriptors for the wallet's Ark
 // outputs.
 func (c *DaemonServiceClient) ListArkOutputDescriptors(ctx context.Context,

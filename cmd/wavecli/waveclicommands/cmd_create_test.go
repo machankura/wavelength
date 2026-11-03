@@ -250,3 +250,70 @@ func TestParseArkOutputKinds(t *testing.T) {
 	_, err = parseArkOutputKinds([]string{"lightning"})
 	require.ErrorContains(t, err, "unknown --kind")
 }
+
+// TestValidateExportWatchOnlyFlags checks the flag combinations
+// `export-watchonly` accepts.
+func TestValidateExportWatchOnlyFlags(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		flags   map[string]string
+		wantErr string
+	}{
+		{"mnemonic", map[string]string{
+			"output": "b", "mnemonic-file": "m",
+			"seed-passphrase-file": "p", "minimal": "true",
+		}, ""},
+		{"descriptors", map[string]string{
+			"output": "b", "descriptor-file": "d",
+		}, ""},
+		{"no output", map[string]string{
+			"mnemonic-file": "m",
+		}, "--output is required"},
+		{"no seed material", map[string]string{
+			"output": "b",
+		}, "is required"},
+		{"both", map[string]string{
+			"output": "b", "mnemonic-file": "m",
+			"descriptor-file": "d",
+		}, "mutually exclusive"},
+		{"passphrase without mnemonic", map[string]string{
+			"output": "b", "descriptor-file": "d",
+			"seed-passphrase-file": "p",
+		}, "requires --mnemonic-file"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			cmd := newExportWatchOnlyCmd()
+			for name, value := range tc.flags {
+				require.NoError(t, cmd.Flags().Set(name, value))
+			}
+
+			err := validateExportWatchOnlyFlags(cmd)
+			if tc.wantErr == "" {
+				require.NoError(t, err)
+
+				return
+			}
+			require.ErrorContains(t, err, tc.wantErr)
+		})
+	}
+}
+
+// TestWriteNewFile checks the bundle file is never written over an
+// existing path and a private one is owner-only.
+func TestWriteNewFile(t *testing.T) {
+	t.Parallel()
+
+	path := filepath.Join(t.TempDir(), "bundle")
+	require.NoError(t, writeNewFile(path, []byte("x"), true))
+	info, err := os.Stat(path)
+	require.NoError(t, err)
+	require.Equal(t, os.FileMode(0o600), info.Mode().Perm())
+
+	require.Error(t, writeNewFile(path, []byte("y"), false))
+}
