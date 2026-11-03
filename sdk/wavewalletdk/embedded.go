@@ -343,6 +343,16 @@ func applyConfigOverrides(daemonCfg *waved.Config, cfg Config) {
 		daemonCfg.Wallet.BtcwFilterSource =
 			cfg.WalletBtcwalletFilterHeadersSource
 	}
+	if cfg.RemoteSigner != nil {
+		daemonCfg.Wallet.RemoteSigner = waved.RemoteSignerConfig{
+			Enable:         true,
+			RPCHost:        cfg.RemoteSigner.RPCHost,
+			MacaroonPath:   cfg.RemoteSigner.MacaroonPath,
+			TLSCertPath:    cfg.RemoteSigner.TLSCertPath,
+			Timeout:        cfg.RemoteSigner.ConnectTimeout,
+			RequestTimeout: cfg.RemoteSigner.RequestTimeout,
+		}
+	}
 
 	if daemonCfg.Swap == nil {
 		daemonCfg.Swap = &waved.SwapConfig{}

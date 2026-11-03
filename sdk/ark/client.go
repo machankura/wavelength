@@ -112,6 +112,10 @@ type Info struct {
 	// active wallet backend.
 	IdentityPubKey string
 
+	// ManifestHash is the hash of the manifest a watch-only wallet was
+	// created from; empty otherwise.
+	ManifestHash string
+
 	// ServerInfo contains cached operator terms when the daemon has
 	// already connected to the Ark server and fetched them. It remains
 	// nil until the daemon reaches the operator-bootstrap stage, and can
@@ -197,6 +201,24 @@ type WalletInitResult struct {
 	// Descriptors are the public output descriptors the wallet watches.
 	// Set when a wallet is created, empty on unlock.
 	Descriptors []string
+
+	// ManifestHash is the hash of the manifest a watch-only wallet was
+	// created from; empty otherwise.
+	ManifestHash string
+}
+
+// WatchOnlyInit is the input of a watch-only wallet whose fund keys live on
+// the daemon's configured remote signer: a signer's bundle, full or
+// minimal, or a manifest with its authentication keys.
+type WatchOnlyInit struct {
+	Bundle           []byte
+	Manifest         []byte
+	AuthKeys         []byte
+	OverrideIdentity bool
+
+	// Birthday bounds the first rescan; the zero time scans from
+	// genesis.
+	Birthday time.Time
 }
 
 // VTXOExpiryInfo is the SDK-owned typed view of a VTXO expiry
@@ -463,6 +485,7 @@ func (c *Client) GetInfo(ctx context.Context) (*Info, error) {
 		WalletType:        resp.WalletType,
 		WalletState:       WalletState(resp.WalletState),
 		IdentityPubKey:    resp.IdentityPubkey,
+		ManifestHash:      resp.GetManifestHash(),
 	}
 
 	if resp.ServerInfo != nil {
@@ -625,6 +648,39 @@ func (c *Client) InitWallet(ctx context.Context, mnemonic []string,
 		Descriptors: append(
 			[]string(nil), resp.GetDescriptors()...,
 		),
+	}, nil
+}
+
+// InitWatchOnlyWallet creates a new watch-only wallet from a remote
+// signer's bundle or manifest. The daemon must run with
+// wallet.remotesigner enabled.
+func (c *Client) InitWatchOnlyWallet(ctx context.Context, init WatchOnlyInit,
+	walletPassword []byte) (*WalletInitResult, error) {
+
+	var birthdayUnix int64
+	if !init.Birthday.IsZero() {
+		birthdayUnix = init.Birthday.Unix()
+	}
+
+	resp, err := c.daemon.InitWallet(ctx, &waverpc.InitWalletRequest{
+		WatchOnlyBundle:   bytes.Clone(init.Bundle),
+		WatchOnlyManifest: bytes.Clone(init.Manifest),
+		AuthKeys:          bytes.Clone(init.AuthKeys),
+		OverrideIdentity:  init.OverrideIdentity,
+		BirthdayUnix:      birthdayUnix,
+		WalletPassword:    bytes.Clone(walletPassword),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("initialize watch-only wallet: %w", err)
+	}
+
+	return &WalletInitResult{
+		IdentityPubKey:  resp.IdentityPubkey,
+		RootFingerprint: resp.GetRootFingerprint(),
+		Descriptors: append(
+			[]string(nil), resp.GetDescriptors()...,
+		),
+		ManifestHash: resp.GetManifestHash(),
 	}, nil
 }
 

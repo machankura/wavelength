@@ -69,6 +69,12 @@ type Config struct {
 	// WalletFeeURL is the fee estimator endpoint used by btcwallet.
 	WalletFeeURL string
 
+	// RemoteSigner, when set, runs the wallet watch-only with every
+	// fund signature from this lnd-compatible signer, such as
+	// wavesigner. The wallet must then be created from a watch-only
+	// bundle or manifest (StartWatchOnlyWallet).
+	RemoteSigner *RemoteSignerConfig
+
 	// WalletBtcwalletBlockHeadersSource is a local file path or HTTP(S)
 	// URL that btcwallet/neutrino imports block headers from on startup.
 	WalletBtcwalletBlockHeadersSource string
@@ -137,4 +143,25 @@ type Config struct {
 
 	// BufferSize overrides the bufconn listener buffer size.
 	BufferSize int
+}
+
+// RemoteSignerConfig is the remote signer a watch-only wallet signs
+// through.
+type RemoteSignerConfig struct {
+	// RPCHost is the signer's gRPC host:port.
+	RPCHost string
+
+	// MacaroonPath is the macaroon the signer issued for this wallet.
+	MacaroonPath string
+
+	// TLSCertPath is the signer's TLS certificate.
+	TLSCertPath string
+
+	// ConnectTimeout bounds connecting to the signer; zero selects the
+	// daemon default.
+	ConnectTimeout time.Duration
+
+	// RequestTimeout bounds each signing request; zero selects the
+	// daemon default.
+	RequestTimeout time.Duration
 }

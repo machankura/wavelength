@@ -11,6 +11,7 @@ import (
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/btcutil/v2"
 	"github.com/btcsuite/btcd/btcutil/v2/hdkeychain"
+	"github.com/btcsuite/btcd/chaincfg/v2"
 	"github.com/btcsuite/btcd/txscript/v2"
 	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/lightninglabs/wavelength/lib/arkscript"
@@ -108,6 +109,12 @@ func WalletAccountKeysFromDescriptors(descriptors []string,
 	}
 
 	return walletdesc.ParseAccountKeys(descriptors, chainParams)
+}
+
+// NetworkChainParams returns the chain parameters of a daemon network name,
+// for SDK callers that validate wallet inputs before starting a daemon.
+func NetworkChainParams(network string) (*chaincfg.Params, error) {
+	return networkToChainParams(network)
 }
 
 // WalletPublicDescriptors renders the public output descriptors a wallet

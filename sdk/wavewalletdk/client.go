@@ -216,6 +216,7 @@ func (c *Client) GetInfo(ctx context.Context) (*Info, error) {
 		WalletType:      resp.GetWalletType(),
 		WalletState:     WalletState(resp.GetWalletState()),
 		IdentityPubKey:  resp.GetIdentityPubkey(),
+		ManifestHash:    resp.GetManifestHash(),
 	}
 
 	if resp.ServerInfo != nil {
@@ -242,7 +243,9 @@ func (c *Client) CreateWallet(ctx context.Context, req CreateWalletRequest) (
 		birthdayUnix = req.Birthday.Unix()
 	}
 
-	if len(mnemonic) == 0 && len(descriptors) == 0 {
+	watchOnly := len(req.WatchOnlyBundle) > 0 ||
+		len(req.WatchOnlyManifest) > 0
+	if len(mnemonic) == 0 && len(descriptors) == 0 && !watchOnly {
 		seed, err := c.daemon.GenSeed(ctx, &waverpc.GenSeedRequest{
 			SeedPassphrase: bytes.Clone(req.SeedPassphrase),
 		})
@@ -263,6 +266,11 @@ func (c *Client) CreateWallet(ctx context.Context, req CreateWalletRequest) (
 			RecoveryWindow: req.RecoveryWindow,
 			Descriptors:    descriptors,
 			BirthdayUnix:   birthdayUnix,
+
+			WatchOnlyBundle:   bytes.Clone(req.WatchOnlyBundle),
+			WatchOnlyManifest: bytes.Clone(req.WatchOnlyManifest),
+			AuthKeys:          bytes.Clone(req.AuthKeys),
+			OverrideIdentity:  req.OverrideIdentity,
 		},
 	)
 	if err != nil {
@@ -277,7 +285,8 @@ func (c *Client) CreateWallet(ctx context.Context, req CreateWalletRequest) (
 		Descriptors: append(
 			[]string(nil), initResp.GetDescriptors()...,
 		),
-		RecoveryRan: initResp.GetRecoveryRan(),
+		ManifestHash: initResp.GetManifestHash(),
+		RecoveryRan:  initResp.GetRecoveryRan(),
 		RecoveredBoardingAddresses: initResp.
 			GetRecoveredBoardingAddresses(),
 		RecoveredBoardingUTXOs: initResp.

@@ -89,6 +89,10 @@ type Info struct {
 	WalletState     WalletState
 	IdentityPubKey  string
 	ServerInfo      *ServerInfo
+
+	// ManifestHash is the hash of the manifest a watch-only wallet was
+	// created from; empty otherwise.
+	ManifestHash string
 }
 
 // ServerInfo contains the operator policy hints needed by wallet hosts.
@@ -123,6 +127,18 @@ type CreateWalletRequest struct {
 	RecoveryWindow uint32
 	Descriptors    []string
 	Birthday       time.Time
+
+	// WatchOnlyBundle creates a watch-only wallet from a remote
+	// signer's bundle, full or minimal. It needs Config.RemoteSigner.
+	WatchOnlyBundle []byte
+
+	// WatchOnlyManifest with AuthKeys creates a watch-only wallet whose
+	// fund slots come from several keys. It needs Config.RemoteSigner;
+	// OverrideIdentity allows a manifest that replaces the identity
+	// family.
+	WatchOnlyManifest []byte
+	AuthKeys          []byte
+	OverrideIdentity  bool
 }
 
 // CreateWalletResult returns the seed words, daemon identity, the public
@@ -134,6 +150,7 @@ type CreateWalletResult struct {
 	IdentityPubKey              string
 	RootFingerprint             string
 	Descriptors                 []string
+	ManifestHash                string
 	RecoveryRan                 bool
 	RecoveredBoardingAddresses  uint32
 	RecoveredBoardingUTXOs      uint32

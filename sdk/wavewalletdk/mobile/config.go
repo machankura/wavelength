@@ -42,6 +42,14 @@ type mobileConfig struct {
 	WalletBlockHeadersSource  string `json:"wallet_block_headers_source"`
 	WalletFilterHeadersSource string `json:"wallet_filter_headers_source"`
 
+	// Remote signer for a watch-only wallet; a non-empty host enables
+	// it. Not available in browser builds, which cannot dial it.
+	RemoteSignerRPCHost               string `json:"remote_signer_rpc_host"`
+	RemoteSignerMacaroonPath          string `json:"remote_signer_macaroon_path"`
+	RemoteSignerTLSCertPath           string `json:"remote_signer_tls_cert_path"`
+	RemoteSignerConnectTimeoutSeconds int64  `json:"remote_signer_connect_timeout_seconds"`
+	RemoteSignerRequestTimeoutSeconds int64  `json:"remote_signer_request_timeout_seconds"`
+
 	// Swap server.
 	SwapServerAddress     string `json:"swap_server_address"`
 	SwapServerTransport   string `json:"swap_server_transport"`
@@ -128,6 +136,14 @@ func (mc mobileConfig) validate() error {
 		{
 			"signing_workers",
 			mc.SigningWorkers,
+		},
+		{
+			"remote_signer_connect_timeout_seconds",
+			mc.RemoteSignerConnectTimeoutSeconds,
+		},
+		{
+			"remote_signer_request_timeout_seconds",
+			mc.RemoteSignerRequestTimeoutSeconds,
 		},
 	}
 	for _, f := range nonNegative {
@@ -227,6 +243,20 @@ func applyMobileConfig(cfg *wavewalletdk.Config, mc mobileConfig) {
 	if mc.WalletFilterHeadersSource != "" {
 		cfg.WalletBtcwalletFilterHeadersSource =
 			mc.WalletFilterHeadersSource
+	}
+
+	if mc.RemoteSignerRPCHost != "" {
+		cfg.RemoteSigner = &wavewalletdk.RemoteSignerConfig{
+			RPCHost:      mc.RemoteSignerRPCHost,
+			MacaroonPath: mc.RemoteSignerMacaroonPath,
+			TLSCertPath:  mc.RemoteSignerTLSCertPath,
+			ConnectTimeout: time.Duration(
+				mc.RemoteSignerConnectTimeoutSeconds,
+			) * time.Second,
+			RequestTimeout: time.Duration(
+				mc.RemoteSignerRequestTimeoutSeconds,
+			) * time.Second,
+		}
 	}
 
 	if mc.SwapServerAddress != "" {
