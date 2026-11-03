@@ -527,6 +527,11 @@ type directedSendFixture struct {
 	// receives its run error. Both are replaced on every launch().
 	serverCancel  context.CancelFunc
 	serverErrChan chan error
+
+	// afterListen, when set, runs on every launch once the daemon's RPC
+	// listener is bound and before waiting for the wallet, for a remote
+	// signer that dials the daemon.
+	afterListen func(rpcAddr string)
 }
 
 // newDirectedSendFixture starts a full waved instance against the systest
@@ -554,6 +559,17 @@ func newDirectedSendFixture(t *testing.T,
 // DB is seeded, with the harness the daemon will run against.
 func newDirectedSendFixtureWithSetup(t *testing.T,
 	setup func(*SysTestHarness, *waved.Config)) *directedSendFixture {
+
+	t.Helper()
+
+	return newDirectedSendFixtureWithHooks(t, setup, nil)
+}
+
+// newDirectedSendFixtureWithHooks is newDirectedSendFixtureWithSetup with an
+// afterListen hook (see directedSendFixture.afterListen).
+func newDirectedSendFixtureWithHooks(t *testing.T,
+	setup func(*SysTestHarness, *waved.Config),
+	afterListen func(rpcAddr string)) *directedSendFixture {
 
 	t.Helper()
 
@@ -630,6 +646,7 @@ func newDirectedSendFixtureWithSetup(t *testing.T,
 		operatorKey:    operatorPriv.PubKey(),
 		seededOutpoint: seededOutpoint,
 		cfg:            cfg,
+		afterListen:    afterListen,
 	}
 
 	// Register the shutdown before launching so a launch that fails its
@@ -659,6 +676,14 @@ func (f *directedSendFixture) launch() {
 
 	f.serverCancel = cancel
 	f.serverErrChan = errChan
+
+	if f.afterListen != nil {
+		require.Eventually(t, func() bool {
+			return server.RPCAddr() != nil
+		}, 30*time.Second, 50*time.Millisecond,
+			"daemon RPC listener never bound")
+		f.afterListen(server.RPCAddr().String())
+	}
 
 	// A bound RPC listener and a ready wallet can precede actor startup.
 	// Wait for the service boundary before issuing wallet operations.
