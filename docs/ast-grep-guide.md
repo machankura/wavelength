@@ -1,7 +1,14 @@
 # ast-grep Code Search and Linting Guide
 
-This project uses ast-grep (`sg`) for AST-level code search and style
-enforcement.
+This project uses ast-grep for AST-level code search and style enforcement.
+The examples call it `sg`, its older short name, which upstream has deprecated.
+On most Linux hosts `sg` is shadow-utils' switch-group command instead, so use
+`ast-grep` there. `make ast-lint` does. Without a global install, run it through
+npm:
+
+```bash
+npx -y -p @ast-grep/cli make ast-lint
+```
 
 ## Code Search
 
@@ -34,7 +41,12 @@ make ast-lint pkg=<dir>          # Focus on a directory
 make ast-grep-fix                # Auto-fix safe issues
 make ast-grep-fix pkg=<dir>      # Fix in a specific directory
 sg scan --interactive            # Review fixes one by one
+ast-grep test --skip-snapshot-tests  # Run the rule tests in rule-tests/
 ```
+
+`make ast-lint` fails only on `error`-severity rules. The style rules are
+warnings, with many existing findings, and do not fail it. CI does not run
+`make ast-lint`, so these rules are a local check.
 
 ## Rules Enforced
 
@@ -59,5 +71,17 @@ sg scan --interactive            # Review fixes one by one
 **Note:** Structured logging calls (`InfoS`, `DebugS`, etc.) are correctly
 formatted with closing `)` on the same line as the last attribute per the
 development guidelines.
+
+### Secrets (`rules/go-secrets.yml`)
+
+| Rule | Description |
+|------|-------------|
+| `no-logged-key-material` | Descriptor text, bundles, auth keys and mnemonics must not reach a logger (error) |
+
+This rule matches on names because ast-grep has no type information, so a
+secret renamed to something like `s` gets past it. Values from `walletdesc`
+redact themselves through `String` and `LogValue` as a second layer. Test files
+are not scanned. When a new secret-bearing field or logger naming form appears,
+add it to the rule and to `rule-tests/no-logged-key-material-test.yml`.
 
 See `rules/` directory for full rule definitions.

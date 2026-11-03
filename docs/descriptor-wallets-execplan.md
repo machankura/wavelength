@@ -280,12 +280,17 @@ VTXOs.
     - The SDK watch-only path is unit-tested against a stub daemon, like
       the descriptor path. No systest drives the SDK.
     - The downstream wavelength-wdk bindings do not expose the new verbs.
+- [x] (2026-11-04) Milestone 7's logging rule:
+  `rules/go-secrets.yml` (`no-logged-key-material`) fails `make ast-lint`
+  when descriptor text, bundles, auth keys or a mnemonic reach a logger.
+  Verified with 33 cases in `rule-tests/` and a planted call in `waved`; the
+  repository has no findings. It matches on names, skips test files, and CI
+  does not run `make ast-lint`. The Makefile now calls `ast-grep`, because
+  `sg` is a different command on most Linux hosts.
 - [ ] Not started:
   - signer-side spending policy;
   - manifests for in-process account-key wallets (a local `wavesigner`
     covers them on native platforms);
-  - the ast-grep rule against logging descriptors, which needs ast-grep
-    installed to verify;
   - wavelength-wdk bindings for watch-only wallets;
   - a completed Ark round against a real operator.
 
@@ -2290,3 +2295,6 @@ bundle export, SDK and mobile watch-only wallets, and inbound signer
 connections. Recorded each in Progress with its deviations, added the
 inbound-connection ownership decision, and listed what remains.
 
+Revision note (2026-11-04, logging rule): added the ast-grep rule against
+logging descriptors, now that ast-grep could be run to verify it, and removed
+it from the list of remaining work.

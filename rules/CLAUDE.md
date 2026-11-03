@@ -3,7 +3,10 @@
 ## Purpose
 
 ast-grep linting rules for code style enforcement. Contains YAML rule files for
-formatting (`go-formatting.yml`) and function definitions (`go-func-def.yml`).
+formatting (`go-formatting.yml`), function definitions (`go-func-def.yml`) and
+keeping key material out of logs (`go-secrets.yml`). Rule tests live in
+`../rule-tests`, outside this directory because ast-grep parses every YAML file
+under a rule directory as a rule.
 
 ## Relationships
 

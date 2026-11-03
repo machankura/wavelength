@@ -1,0 +1,135 @@
+id: no-logged-key-material
+valid:
+  - |
+    func f() {
+      log.InfoS(ctx, "Creating wallet", slog.Int("count", len(req.Descriptors)))
+    }
+  - |
+    func f() {
+      a.logger(ctx).InfoS(ctx, "Parsed", slog.Int("count", len(descriptors)))
+    }
+  - |
+    func f() {
+      attr := slog.Int("count", len(w.Descriptors))
+    }
+  - |
+    func f() {
+      attr := slog.Int("batch_expiry", int(descriptor.BatchExpiry))
+    }
+  - |
+    func f() {
+      log.DebugS(ctx, "VTXO", slog.String("status", descriptor.Status.String()))
+    }
+  - |
+    func f() {
+      log.InfoS(ctx, "Created", slog.String("manifest_hash", hash))
+    }
+  - |
+    func f() {
+      fmt.Printf("%s\n", desc.Render(false))
+    }
+  - |
+    func f() {
+      wd, err := walletdesc.Parse(req.Descriptors, params)
+    }
+  - |
+    func f() {
+      catalog.Render(descriptors)
+    }
+  - |
+    func f() {
+      dialog.Info(mnemonic)
+    }
+  - |
+    func f() {
+      backlog.Errorf("%s", mnemonic)
+    }
+  - |
+    func f() {
+      s.dialog.Info(req.Mnemonic)
+    }
+  - |
+    func f() {
+      err.Error(mnemonic)
+    }
+  - |
+    func f() {
+      status.Errorf(codes.InvalidArgument, "%s", req.Mnemonic)
+    }
+invalid:
+  - |
+    func f() {
+      log.InfoS(ctx, "Creating wallet", "descriptors", req.Descriptors)
+    }
+  - |
+    func f() {
+      log.Infof("descriptors: %v", descriptors)
+    }
+  - |
+    func f() {
+      s.log.DebugS(ctx, "Create", slog.Any("d", req.GetDescriptors()))
+    }
+  - |
+    func f() {
+      logger.Errorf("bad text %s", descriptorTexts[0])
+    }
+  - |
+    func f() {
+      rpcsLog.Debugf("got %s", req.Mnemonic)
+    }
+  - |
+    func f() {
+      log.TraceS(ctx, "x", btclog.Fmt("%s", req.AuthKeys))
+    }
+  - |
+    func f() {
+      log.Debugf("key: %s", desc.Render(true))
+    }
+  - |
+    func f() {
+      log.Infof("bundle: %s", walletdesc.FormatBundle(keys, true))
+    }
+  - |
+    func f() {
+      attr := slog.String("descriptors", strings.Join(descriptors, ","))
+    }
+  - |
+    func f() {
+      attr := slog.Any("root", w.Descriptors)
+    }
+  - |
+    func f() {
+      msg := btclog.Fmt("%s", watchOnlyBundle)
+    }
+  - |
+    func f() {
+      a.logger(ctx).InfoS(ctx, "Create", "descriptors", req.Descriptors)
+    }
+  - |
+    func f() {
+      logger(context.TODO()).Debugf("%s", req.Mnemonic)
+    }
+  - |
+    func f() {
+      w.Logger(ctx).Info("create", "keys", req.AuthKeys)
+    }
+  - |
+    func f() {
+      r.deps.resolveLog().Infof("%s", descriptors)
+    }
+  - |
+    func f() {
+      h.log(up.ctx).Warnf("%s", mnemonic)
+    }
+  - |
+    func f() {
+      build.LoggerFromContext(ctx).WithPrefix(Subsystem).Debugf("%s", mnemonic)
+    }
+  - |
+    func f() {
+      env.Log.Infof("%v", req.Descriptors)
+    }
+  - |
+    func f() {
+      log.InfoS(ctx, "n", slog.Int("n", len(descriptors)), "d", descriptors)
+    }
