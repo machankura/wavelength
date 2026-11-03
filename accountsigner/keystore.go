@@ -392,3 +392,37 @@ func readOrigin(r *bytes.Reader,
 
 	return origin, nil
 }
+
+// keystoreManifestKey holds the canonical manifest of a wallet whose slots
+// a manifest assigned. It is public, so it is stored unencrypted.
+var keystoreManifestKey = []byte("manifest")
+
+// StoreManifest records a wallet's canonical manifest next to its keystore.
+func StoreManifest(db walletdb.DB, canonical []byte) error {
+	return walletdb.Update(db, func(tx walletdb.ReadWriteTx) error {
+		bucket := tx.ReadWriteBucket(keystoreBucket)
+		if bucket == nil {
+			return ErrNoKeystore
+		}
+
+		return bucket.Put(keystoreManifestKey, canonical)
+	})
+}
+
+// LoadManifest returns the canonical manifest StoreManifest recorded, or
+// nil when the wallet has none.
+func LoadManifest(db walletdb.DB) ([]byte, error) {
+	var canonical []byte
+	err := walletdb.View(db, func(tx walletdb.ReadTx) error {
+		bucket := tx.ReadBucket(keystoreBucket)
+		if bucket == nil {
+			return nil
+		}
+
+		canonical = bytes.Clone(bucket.Get(keystoreManifestKey))
+
+		return nil
+	})
+
+	return canonical, err
+}

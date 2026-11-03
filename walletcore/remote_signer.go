@@ -164,6 +164,10 @@ type RemoteSigning struct {
 
 	// Conn is the signer connection; Stop closes it.
 	Conn rpcwallet.RemoteSignerConnection
+
+	// ManifestHash is the hex hash of the manifest the wallet was
+	// created from, or empty for a wallet without one.
+	ManifestHash string
 }
 
 // OpenRemoteSigning creates (with a bundle) or opens (without one) the
@@ -180,7 +184,7 @@ type RemoteSigning struct {
 // refuses to derive or sign with any family its bundle did not supply.
 func OpenRemoteSigning(ctx context.Context, cfg btcwallet.Config,
 	bundle *walletdesc.WatchOnlyBundle, minimal *walletdesc.MinimalBundle,
-	remote RemoteSignerConfig,
+	manifest *walletdesc.Manifest, remote RemoteSignerConfig,
 	blockCache *blockcache.BlockCache) (*RemoteSigning, error) {
 
 	if err := remote.Validate(); err != nil {
@@ -196,7 +200,7 @@ func OpenRemoteSigning(ctx context.Context, cfg btcwallet.Config,
 	}
 
 	signing, err := OpenWithSigner(
-		cfg, bundle, minimal, remoteConn, blockCache,
+		cfg, bundle, minimal, manifest, remoteConn, blockCache,
 	)
 	if err != nil {
 		remoteConn.Stop()
@@ -209,8 +213,12 @@ func OpenRemoteSigning(ctx context.Context, cfg btcwallet.Config,
 
 // OpenWithSigner is OpenRemoteSigning over an already established signer
 // connection, which the result owns once it returns without error.
+//
+// A manifest, given with the minimal bundle it produced, is stored with
+// the wallet; reopening a wallet that has one checks its accounts still
+// match it, and the result carries its hash either way.
 func OpenWithSigner(cfg btcwallet.Config, bundle *walletdesc.WatchOnlyBundle,
-	minimal *walletdesc.MinimalBundle,
+	minimal *walletdesc.MinimalBundle, manifest *walletdesc.Manifest,
 	remoteConn rpcwallet.RemoteSignerConnection,
 	blockCache *blockcache.BlockCache) (*RemoteSigning, error) {
 
@@ -234,10 +242,19 @@ func OpenWithSigner(cfg btcwallet.Config, bundle *walletdesc.WatchOnlyBundle,
 	}
 	db := btcw.InternalWallet().Database()
 
-	local, supplied, err := splitSigningKeys(
-		btcw, minimal, bundle == nil, cfg,
-	)
+	opening := bundle == nil
+	local, supplied, err := splitSigningKeys(btcw, minimal, opening, cfg)
 	if err != nil {
+		_ = db.Close()
+
+		return nil, err
+	}
+
+	manifestHash, err := walletManifest(btcw, manifest, opening, cfg)
+	if err != nil {
+		if local != nil {
+			local.Zero()
+		}
 		_ = db.Close()
 
 		return nil, err
@@ -273,10 +290,46 @@ func OpenWithSigner(cfg btcwallet.Config, bundle *walletdesc.WatchOnlyBundle,
 	}
 
 	return &RemoteSigning{
-		BtcWallet: btcw,
-		KeyRing:   ring,
-		Conn:      conn,
+		BtcWallet:    btcw,
+		KeyRing:      ring,
+		Conn:         conn,
+		ManifestHash: manifestHash,
 	}, nil
+}
+
+// walletManifest stores manifest with a new wallet, or on open checks the
+// stored one still matches the wallet's accounts, and returns its hash.
+func walletManifest(btcw *btcwallet.BtcWallet, manifest *walletdesc.Manifest,
+	opening bool, cfg btcwallet.Config) (string, error) {
+
+	db := btcw.InternalWallet().Database()
+	if !opening {
+		if manifest == nil {
+			return "", nil
+		}
+		err := accountsigner.StoreManifest(db, manifest.Canonical())
+		if err != nil {
+			return "", fmt.Errorf("store manifest: %w", err)
+		}
+
+		return manifest.HashHex(), nil
+	}
+
+	canonical, err := accountsigner.LoadManifest(db)
+	if err != nil || canonical == nil {
+		return "", err
+	}
+
+	stored, err := walletdesc.ParseManifest(canonical, cfg.NetParams)
+	if err != nil {
+		return "", fmt.Errorf("%w: %w", ErrManifestMismatch, err)
+	}
+	err = checkManifestAccounts(btcw, stored, cfg.NetParams)
+	if err != nil {
+		return "", err
+	}
+
+	return stored.HashHex(), nil
 }
 
 // splitSigningKeys returns the local authentication keys and supplied

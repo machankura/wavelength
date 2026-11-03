@@ -271,7 +271,7 @@ func TestSplitSigning(t *testing.T) {
 
 	remote := newRemote()
 	signing, err := walletcore.OpenWithSigner(
-		cfg, nil, minimal, remote, cache,
+		cfg, nil, minimal, nil, remote, cache,
 	)
 	require.NoError(t, err)
 	ring := signing.KeyRing
@@ -374,7 +374,9 @@ func TestSplitSigning(t *testing.T) {
 
 	// Reopening restores the split from the keystore.
 	remote = newRemote()
-	reopened, err := walletcore.OpenWithSigner(cfg, nil, nil, remote, cache)
+	reopened, err := walletcore.OpenWithSigner(
+		cfg, nil, nil, nil, remote, cache,
+	)
 	require.NoError(t, err)
 	_, err = reopened.KeyRing.SignMessageSchnorr(
 		joinLoc, msg, false, nil, tag,
@@ -396,6 +398,8 @@ func TestSplitSigning(t *testing.T) {
 	reopened.Conn.Stop()
 	closeBtcWallet(t, reopened.BtcWallet)
 
-	_, err = walletcore.OpenWithSigner(cfg, nil, nil, newRemote(), cache)
+	_, err = walletcore.OpenWithSigner(
+		cfg, nil, nil, nil, newRemote(), cache,
+	)
 	require.ErrorIs(t, err, walletcore.ErrBundleOutdated)
 }

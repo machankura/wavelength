@@ -61,6 +61,10 @@ type Wallet struct {
 	// and BtcWallet is watch-only.
 	RemoteSigner rpcwallet.RemoteSignerConnection
 
+	// ManifestHash is the hex hash of the manifest a remote-signing
+	// wallet was created from, or empty.
+	ManifestHash string
+
 	// WalletLog is an optional logger for this wallet instance.
 	WalletLog fn.Option[btclog.Logger]
 }
@@ -211,9 +215,10 @@ func (w *Wallet) WatchOnly() bool {
 	return w.RemoteSigner != nil
 }
 
-// VerifyRemoteSigner checks, for a remote-signing wallet, that the signer
-// holds the identity key the wallet's account public keys imply. It is a
-// no-op for a wallet that holds its own keys.
+// VerifyRemoteSigner checks, for a wallet whose keys a signer holds, that
+// the signer holds the key of every fund slot the watch-only wallet
+// expects (see ProbeSigner). It is a no-op for a wallet that holds its own
+// keys.
 func (w *Wallet) VerifyRemoteSigner() error {
 	if w.RemoteSigner == nil {
 		return nil
@@ -224,7 +229,9 @@ func (w *Wallet) VerifyRemoteSigner() error {
 		return errors.New("remote-signing wallet has a local key ring")
 	}
 
-	return VerifyRemoteSigner(ring)
+	_, err := ProbeSigner(ring, w.BtcWallet, w.ChainParams)
+
+	return err
 }
 
 // StopRemoteSigner closes the remote signer connection, if any.

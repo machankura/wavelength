@@ -167,6 +167,7 @@ func (r *RemoteSigning) Apply(core *Wallet, coinType uint32) {
 	core.Controller = r.KeyRing
 	core.KeyRing = r.KeyRing
 	core.RemoteSigner = r.Conn
+	core.ManifestHash = r.ManifestHash
 }
 
 // WalletSource is the creation or open input of a self-managed wallet, as
@@ -182,6 +183,10 @@ type WalletSource struct {
 	WatchOnly        *walletdesc.WatchOnlyBundle
 	WatchOnlyMinimal *walletdesc.MinimalBundle
 	RemoteSigner     *RemoteSignerConfig
+
+	// WatchOnlyManifest, set with the WatchOnlyMinimal it produced,
+	// is stored with a new remote-signing wallet.
+	WatchOnlyManifest *walletdesc.Manifest
 
 	// AccountKeys creates an account-key wallet.
 	AccountKeys *walletdesc.AccountKeys
@@ -205,7 +210,7 @@ func OpenSigning(ctx context.Context, cfg btcwallet.Config, src WalletSource,
 		cfg.PublicPass = src.WalletPassword
 		signing, err := OpenRemoteSigning(
 			ctx, cfg, src.WatchOnly, src.WatchOnlyMinimal,
-			*src.RemoteSigner, blockCache,
+			src.WatchOnlyManifest, *src.RemoteSigner, blockCache,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("open remote-signing wallet: %w",

@@ -56,6 +56,15 @@ btcwallet.BtcWallet regardless of the underlying chain source.
   else to the remote signer. `guardedKeyRing` refuses `ErrFamilyNotSupplied`
   for any family outside the registry or not supplied, and an open whose
   stored bundle misses a registry family fails `ErrBundleOutdated`.
+- `ProbeSigner` / `SlotProbe` — on every start of a signer-backed wallet,
+  the signer must sign a fresh tagged challenge with each fund family's
+  index-0 key and a key-path spend of a fabricated output on the on-chain
+  account's first key, each verified against the watch-only wallet's own
+  key. It replaces the identity-only check, and a single-root signer (lnd)
+  fails it for every slot a manifest overrides.
+- `ErrManifestMismatch` — a wallet created from a manifest stores it next
+  to its keystore; every open checks btcwallet's accounts still hold the
+  manifest's keys, and `Wallet.ManifestHash` carries its hash.
 - `OutputLeaser` — Interface for UTXO reservation during coin selection:
   `LeaseOutput(ctx, id, outpoint, expiry)` and
   `ReleaseOutput(ctx, id, outpoint)`. Implemented by `lwwallet.BoardingBackendAdapter`

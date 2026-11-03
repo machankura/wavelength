@@ -209,13 +209,14 @@ func NewWithNeutrino(cfg Config,
 	}
 	signing, err := walletcore.OpenSigning(
 		context.Background(), btcwCfg, walletcore.WalletSource{
-			Seed:             cfg.Seed,
-			RootKey:          cfg.RootKey,
-			WatchOnly:        cfg.WatchOnly,
-			WatchOnlyMinimal: cfg.WatchOnlyMinimal,
-			RemoteSigner:     cfg.RemoteSigner,
-			AccountKeys:      cfg.AccountKeys,
-			WalletPassword:   cfg.WalletPassword,
+			Seed:              cfg.Seed,
+			RootKey:           cfg.RootKey,
+			WatchOnly:         cfg.WatchOnly,
+			WatchOnlyMinimal:  cfg.WatchOnlyMinimal,
+			WatchOnlyManifest: cfg.WatchOnlyManifest,
+			RemoteSigner:      cfg.RemoteSigner,
+			AccountKeys:       cfg.AccountKeys,
+			WalletPassword:    cfg.WalletPassword,
 		}, blockCache,
 	)
 	if err != nil {

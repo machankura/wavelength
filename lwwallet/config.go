@@ -43,6 +43,11 @@ type Config struct {
 	// creation input.
 	WatchOnlyMinimal *walletdesc.MinimalBundle
 
+	// WatchOnlyManifest is the manifest WatchOnlyMinimal came from, if
+	// any. The wallet stores it, checks it on every open and reports
+	// its hash.
+	WatchOnlyManifest *walletdesc.Manifest
+
 	// AccountKeys is the account-level private keys to create a wallet
 	// from, instead of a seed or root key. The wallet keeps them
 	// encrypted under WalletPassword and signs in process. Like Seed it
