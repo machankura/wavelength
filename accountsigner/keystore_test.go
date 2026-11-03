@@ -7,10 +7,12 @@ import (
 	"testing"
 	"time"
 
+	"github.com/btcsuite/btcd/btcutil/v2/hdkeychain"
 	"github.com/btcsuite/btcwallet/waddrmgr"
 	"github.com/btcsuite/btcwallet/walletdb"
 	_ "github.com/btcsuite/btcwallet/walletdb/bdb"
 	"github.com/lightninglabs/wavelength/accountsigner"
+	"github.com/lightninglabs/wavelength/walletdesc"
 	"github.com/stretchr/testify/require"
 )
 
@@ -44,6 +46,15 @@ func TestKeystoreRoundTrip(t *testing.T) {
 	root := testRoot(t)
 	keys := testAccountKeys(t, root)
 	password := []byte("keystore-password")
+
+	// An overridden slot keeps its real origin through the store.
+	keys.Accounts[3].Origin = &walletdesc.KeyOrigin{
+		Fingerprint: 0xb2c3d4e5,
+		Path: []uint32{
+			hdkeychain.HardenedKeyStart + 9000,
+			hdkeychain.HardenedKeyStart + 7,
+		},
+	}
 	err = accountsigner.StoreKeys(
 		db, password, keys, &waddrmgr.FastScryptOptions,
 	)
@@ -67,6 +78,9 @@ func TestKeystoreRoundTrip(t *testing.T) {
 		require.Equal(
 			t, keys.Accounts[i].Key.String(),
 			loaded.Accounts[i].Key.String(),
+		)
+		require.Equal(
+			t, keys.Accounts[i].Origin, loaded.Accounts[i].Origin,
 		)
 	}
 	loaded.Zero()

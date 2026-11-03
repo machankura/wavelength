@@ -16,8 +16,13 @@ import (
 	"github.com/lightningnetwork/lnd/keychain"
 )
 
-// keystoreVersion is the format of the encrypted key record.
-const keystoreVersion = 1
+// keystoreVersion is the format of the encrypted key record. Version 2
+// adds each account's real origin, for slots a manifest overrides;
+// version 1 records still decode.
+const keystoreVersion = 2
+
+// maxOriginSteps bounds a stored origin path.
+const maxOriginSteps = 32
 
 var (
 	// keystoreBucket is the wallet database's top-level bucket for the
@@ -182,6 +187,21 @@ func encodeKeys(keys *walletdesc.AccountKeys) ([]byte, error) {
 		}
 		buf.WriteByte(byte(len(text)))
 		buf.WriteString(text)
+
+		if acct.Origin == nil {
+			buf.WriteByte(0)
+
+			continue
+		}
+		if len(acct.Origin.Path) > maxOriginSteps {
+			return nil, errors.New("account origin path too long")
+		}
+		buf.WriteByte(1)
+		write(acct.Origin.Fingerprint)
+		buf.WriteByte(byte(len(acct.Origin.Path)))
+		for _, step := range acct.Origin.Path {
+			write(step)
+		}
 	}
 
 	return buf.Bytes(), nil
@@ -194,7 +214,7 @@ func decodeKeys(plain []byte,
 
 	r := bytes.NewReader(plain)
 	version, err := r.ReadByte()
-	if err != nil || version != keystoreVersion {
+	if err != nil || version < 1 || version > keystoreVersion {
 		return nil, fmt.Errorf("unsupported keystore version %d",
 			version)
 	}
@@ -257,6 +277,16 @@ func decodeKeys(plain []byte,
 				errors.New("stored key is not a private key " +
 					"for this network"),
 			)
+		}
+
+		if version >= 2 {
+			origin, err := readOrigin(r, read)
+			if err != nil {
+				acct.Key.Zero()
+
+				return fail(err)
+			}
+			acct.Origin = origin
 		}
 
 		keys.Accounts = append(keys.Accounts, acct)
@@ -326,4 +356,39 @@ func LoadSuppliedFamilies(db walletdb.DB) ([]keychain.KeyFamily, error) {
 	})
 
 	return families, err
+}
+
+// readOrigin reads a version 2 origin: a flag byte, then the fingerprint
+// and path when set.
+func readOrigin(r *bytes.Reader,
+	read func() (uint32, error)) (*walletdesc.KeyOrigin, error) {
+
+	flag, err := r.ReadByte()
+	if err != nil {
+		return nil, err
+	}
+	if flag == 0 {
+		return nil, nil
+	}
+
+	origin := &walletdesc.KeyOrigin{}
+	if origin.Fingerprint, err = read(); err != nil {
+		return nil, err
+	}
+	steps, err := r.ReadByte()
+	if err != nil {
+		return nil, err
+	}
+	if steps > maxOriginSteps {
+		return nil, errors.New("stored origin path too long")
+	}
+	for range steps {
+		step, err := read()
+		if err != nil {
+			return nil, err
+		}
+		origin.Path = append(origin.Path, step)
+	}
+
+	return origin, nil
 }
