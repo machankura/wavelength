@@ -91,6 +91,18 @@ type WatchOnlyAccount struct {
 	// Key is the account public key at purpose'/coin'/account', with the
 	// network's standard public version bytes.
 	Key *hdkeychain.ExtendedKey
+
+	// Origin is where Key really comes from when a manifest overrides
+	// the slot, or nil for a key at its slot path under the bundle's
+	// master key.
+	Origin *KeyOrigin
+}
+
+// KeyOrigin is a key's real source: the master key fingerprint of its root
+// and the path from that root. It may differ from the slot the key fills.
+type KeyOrigin struct {
+	Fingerprint uint32
+	Path        []uint32
 }
 
 // WatchOnlyBundle is a validated set of account public keys from which a

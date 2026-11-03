@@ -106,10 +106,15 @@ func NewWatchOnlyBtcWallet(cfg btcwallet.Config,
 			Coin:    acct.CoinType,
 		}
 
+		// An overridden slot records its own source's fingerprint.
+		fingerprint := bundle.MasterFingerprint
+		if acct.Origin != nil {
+			fingerprint = acct.Origin.Fingerprint
+		}
+
 		props, err := w.ImportAccountWithScope(
 			watchOnlyAccountName(scope, acct.Account), acct.Key,
-			bundle.MasterFingerprint, scope,
-			watchOnlyAddrSchema(scope),
+			fingerprint, scope, watchOnlyAddrSchema(scope),
 		)
 		if err != nil {
 			closeWallet()

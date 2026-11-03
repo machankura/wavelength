@@ -45,6 +45,14 @@ SDK and tests share one set of rules.
   what a seed wallet of `root` uses.
 - `FormatBundle(keys, minimal)` — renders account keys as a full or minimal
   bundle, checksummed, one entry per line.
+- `ParseManifest(data, params)` / `Manifest` — per-slot key overrides: a
+  JSON manifest assigning the on-chain account and each fund family a key
+  from any source, with its real origin. Refuses authentication-family
+  overrides, script descriptors, duplicate keys or origins and missing
+  slots; `Hash` covers a canonical encoding; `CheckIdentity` refuses a
+  family-6 override unless allowed; `MinimalBundle` joins it with the
+  authentication keys (`ParseAuthKeys`) for import. `FormatManifest` and
+  `FormatAuthKeys` are the export side.
 - `Checksum` / `AddChecksum` — the BIP380 checksum.
 - Sentinel errors (`ErrWatchOnlyDescriptor`, `ErrNotRootKey`,
   `ErrUnsupportedPath`, `ErrLegacyDerivationMismatch`, ...) — every `Parse`
@@ -85,6 +93,10 @@ SDK and tests share one set of rules.
   `m/1017'`) is invisible from the coin-level key: software that exported
   it with standard BIP32 and btcwallet from the same seed disagree on every
   family. walletcore's `TestLegacyDerivationFamilyScope` pins this.
+- A manifest slot's key may come from any root at any path, because the
+  wallet derives only non-hardened children below a slot. Its origin is
+  kept (`WatchOnlyAccount.Origin`, `AccountKey.Origin`) so btcwallet records
+  the real fingerprint and the signer can export the manifest again.
 
 ## Deep Docs
 

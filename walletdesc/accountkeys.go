@@ -37,6 +37,10 @@ type AccountKey struct {
 	// Key is the account private key, with the network's standard
 	// private version bytes.
 	Key *hdkeychain.ExtendedKey
+
+	// Origin is the key's real source when it overrides its slot, or nil
+	// for a key at its slot path under the master key.
+	Origin *KeyOrigin
 }
 
 // AccountKeys is a validated set of account-level private keys: the
@@ -77,6 +81,7 @@ func (k *AccountKeys) Bundle() (*WatchOnlyBundle, error) {
 			CoinType: acct.CoinType,
 			Account:  acct.Account,
 			Key:      pub,
+			Origin:   acct.Origin,
 		})
 	}
 
