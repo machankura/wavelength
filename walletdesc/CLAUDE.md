@@ -31,6 +31,13 @@ SDK and tests share one set of rules.
   family. Validated through the same rules as a watch-only bundle;
   `AccountKeys.Bundle()` is the public half. `HasAccountKeys` routes a
   descriptor set to this parser or to `Parse`.
+- `ParseBundle(data, params)` — a watch-only bundle that may be minimal: all
+  public keys is a full bundle; text with private entries is a
+  `*MinimalBundle` for split signing, the BIP86 account and fund families as
+  public keys and the authentication families as private keys, nothing
+  else. `MinimalBundle.WithPlaceholders` completes it for import with
+  placeholder xpubs for every other family, derived from a discarded random
+  key.
 - `Checksum` / `AddChecksum` — the BIP380 checksum.
 - Sentinel errors (`ErrWatchOnlyDescriptor`, `ErrNotRootKey`,
   `ErrUnsupportedPath`, `ErrLegacyDerivationMismatch`, ...) — every `Parse`
