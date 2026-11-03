@@ -200,8 +200,24 @@ VTXOs.
   plan said account-level keys are immune to the legacy-derivation caveat;
   that holds for per-family keys but not fully for a coin-level key (see
   Surprises).
-- [ ] Extension W4: Wavelength signer mode and watch-only bundle export, so
-  no lnd is needed anywhere.
+- [x] (2026-11-03) Extension W4: Wavelength signer and bundle export, so no
+  lnd is needed anywhere. `signerserver` serves an `accountsigner.Signer`
+  as lnd's `signrpc.Signer` and `walletrpc.WalletKit` (the ten W2 requests
+  plus read-only `ListAccounts`), with a generated TLS pair and its own
+  macaroon. `cmd/wavesigner` adds `create` (encrypted key store from
+  master-key descriptors, account keys or a Wavelength mnemonic), `run`,
+  and `export-watchonly [--minimal]`. `walletdesc.BtcwalletAccountKeys`
+  expands a master key into exactly the account keys btcwallet holds,
+  checked against real wallets for all three legacy-derivation cases, and
+  `walletdesc.FormatBundle` renders both bundle forms. Acceptance:
+  `TestWaveSignerDaemon` and `TestWaveSignerMinimalDaemon` run the W0
+  scenario with no lnd. Deviations: the signer is a separate small binary
+  rather than a `waved` mode; the export is `wavesigner export-watchonly`
+  run on the signer's key store, not `wavecli wallet export-watchonly`
+  against a full-key daemon, which would need a new daemon RPC that
+  releases account private keys for `--minimal`; and the systests run the
+  signer in-process through the same `signerserver` package the binary
+  serves, rather than as a second process.
 - [ ] Extension W5: per-family key overrides for fund slots, with a
   manifest, signer routing and per-slot unlock probes.
 - [x] (2026-11-02) Extension W6: Ark output descriptor export
@@ -213,8 +229,8 @@ VTXOs.
   generated `Descriptor()` method; there is no cursor, so the list is bounded
   by wallet size; VTXO entries report exit delay 0 (unknown) because the
   delay sits in the policy template, which is not decoded here.
-- [ ] Not started: W4 (Wavelength signer mode), W5 (per-family overrides).
-  W4 can serve `accountsigner.Signer` over
+- [ ] Not started: W5 (per-family overrides).
+  W4's `signerserver` serves `accountsigner.Signer` over
   gRPC almost unchanged, since its methods already have the signrpc and
   walletrpc server shapes. The native remote-signer and account-key
   systests are the acceptance base.
@@ -470,6 +486,13 @@ VTXOs.
   are accepted (family 0 is unused), and the `m/1017'` case is documented
   as undetectable from the coin-level key.
   Evidence: `walletcore/legacy_family_test.go`, `walletdesc/accountkeys.go`.
+
+- Observation: lnd's `rpcwallet.OutboundConnection.RequestTimeout()` returns
+  its connection timeout and never reads `ExperimentalRequestTimeout`, so
+  W2's `wallet.remotesigner.requesttimeout` had no effect until
+  `DialRemoteSigner` wrapped the connection to report it.
+  Evidence: lnd `lnwallet/rpcwallet/remote_signer_connection.go`,
+  `walletcore/remote_signer_dial.go`.
 
 ## Decision Log
 

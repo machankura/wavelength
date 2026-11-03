@@ -185,9 +185,46 @@ How it behaves:
 What this protects: someone who copies the data directory and the wallet
 password gets the public keys (and, with a minimal bundle, the two
 authentication keys) and can see the wallet's balances and impersonate it
-to the operator, but holds no key that can spend. It does not protect against an attacker who
-controls the running daemon, who can ask the signer to sign a theft; an
-lnd signer signs any valid request.
+to the operator, but holds no key that can spend. It does not protect
+against an attacker who controls the running daemon, who can ask the
+signer to sign a theft; neither an lnd signer nor `wavesigner` judges what
+it signs.
+
+#### The Wavelength signer (`wavesigner`)
+
+`wavesigner` is the signer without lnd. It holds the keys, runs no chain
+backend and no Ark logic, and serves only lnd's remote signer protocol, so
+the watch-only daemon above uses it exactly as it would an lnd signer.
+
+```bash
+export WAVESIGNER_PASSWORD=...   # or --password-file
+wavesigner --network=regtest create --descriptor-file wallet.descriptors
+wavesigner --network=regtest export-watchonly --output signer.bundle
+wavesigner --network=regtest run --listen=0.0.0.0:10019 \
+  --tlsextradomain=signer.example
+```
+
+- `create` takes master-key descriptors, account-level keys (as
+  `wavecli create --descriptor-file` accepts), or `--mnemonic-file` with a
+  Wavelength mnemonic, and keeps the keys encrypted under the password in
+  `~/.wavesigner/<network>/signer.db`. A master key or mnemonic is
+  expanded into exactly the account keys a Wavelength seed wallet of it
+  holds. An lnd mnemonic is not interchangeable: lnd derives other keys
+  from the same words.
+- `export-watchonly` writes the bundle for `wavecli create
+  --watch-only-bundle-file`: a full bundle by default, or `--minimal` for
+  split signing, which warns that the file holds private keys and refuses
+  to write it where other users can read it.
+- `run` writes `tls.cert` and `signer.macaroon` to the network directory on
+  first start; copy both to the watch-only host and point
+  `--wallet.remotesigner.tlscertpath` and `--wallet.remotesigner.macaroonpath`
+  at them. Use `--tlsextradomain` or `--tlsextraip` before the first start
+  if the daemon reaches the signer by a name other than this host's own.
+  The macaroon allows signing: give it to that daemon only, and let only
+  that daemon reach the signer's port.
+- The signer signs only inside its own accounts (BIP86 and BIP84 account 0
+  and the key families of its network). It also answers `ListAccounts`, so
+  `lncli wallet accounts list` pointed at it prints its account xpubs.
 
 ### lnd Mode
 
