@@ -298,12 +298,15 @@ VTXOs.
   and React Native native code, which need a device build, and any real signer
   from JavaScript. wdk's pins stay at the current release, so it needs a
   `wavelength-core` release first.
+- [x] (2026-11-04) `wavelength-wdk`: `openDescriptorAccount` and
+  `WalletAccountWavelength.listWalletDescriptors`, the public way to reach the
+  descriptor verbs the addon already exported. Checked the same way, through
+  the native transport into `parseDescriptorWalletStartRequest`. The desktop
+  WASM path is tested only by the bridge having the verb, not by running it.
 - [ ] Not started:
   - signer-side spending policy;
   - manifests for in-process account-key wallets (a local `wavesigner`
     covers them on native platforms);
-  - a public wavelength-wdk entry for descriptor wallets, whose verbs the
-    addon exports but nothing public calls;
   - a completed Ark round against a real operator.
 
 
@@ -2312,5 +2315,5 @@ logging descriptors, now that ast-grep could be run to verify it, and removed
 it from the list of remaining work.
 
 Revision note (2026-11-04, JavaScript hosts): recorded the watch-only client
-in `wavelength-sdk` and `wavelength-wdk`, and listed the matching gap for
-descriptor wallets, which the wdk work turned up.
+in `wavelength-sdk` and `wavelength-wdk`, and the matching wdk entry point for
+descriptor wallets, a gap the watch-only work turned up.
