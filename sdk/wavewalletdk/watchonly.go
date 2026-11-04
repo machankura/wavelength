@@ -245,6 +245,15 @@ func (c *Client) openWatchOnlyWallet(ctx context.Context,
 		}
 		result.ManifestHash = info.ManifestHash
 
+		listed, err := c.ListWalletDescriptors(
+			ctx, ListWalletDescriptorsRequest{},
+		)
+		if err != nil {
+			return nil, err
+		}
+		result.RootFingerprint = listed.RootFingerprint
+		result.Descriptors = listed.Descriptors
+
 	case WalletStateReady, WalletStateSyncing:
 		return nil, errors.New("wallet is already unlocked")
 

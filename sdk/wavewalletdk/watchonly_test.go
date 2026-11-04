@@ -141,6 +141,45 @@ func TestOpenWatchOnlyWalletImport(t *testing.T) {
 	require.ErrorContains(t, err, "identity mismatch")
 }
 
+// TestOpenWatchOnlyWalletUnlock checks a locked daemon is unlocked with the
+// host's password and reports the same details as an import would, and that
+// a wrong identity is refused.
+func TestOpenWatchOnlyWalletUnlock(t *testing.T) {
+	t.Parallel()
+
+	in := testWatchOnlyInputs(t)
+	stub := &stubDaemonServer{
+		state:          waverpc.WalletState_WALLET_STATE_LOCKED,
+		unlockIdentity: in.identity,
+		listDescriptorsResp: &waverpc.ListWalletDescriptorsResponse{
+			RootFingerprint: "abcd0123",
+			Descriptors: []string{
+				"tr(tpub)",
+				"wpkh(tpub)",
+			},
+		},
+	}
+	client := newStubClient(t, stub)
+
+	req := WatchOnlyWalletRequest{
+		Manifest:       in.manifest,
+		AuthKeys:       in.auth,
+		WalletPassword: []byte("watch-only-password"),
+	}
+	result, err := client.openWatchOnlyWallet(
+		t.Context(), req, in.identity,
+	)
+	require.NoError(t, err)
+	require.False(t, result.Imported)
+	require.Equal(t, in.identity, result.IdentityPubKey)
+	require.Equal(t, "abcd0123", result.RootFingerprint)
+	require.Equal(t, []string{"tr(tpub)", "wpkh(tpub)"}, result.Descriptors)
+
+	stub.state = waverpc.WalletState_WALLET_STATE_LOCKED
+	_, err = client.openWatchOnlyWallet(t.Context(), req, "other")
+	require.ErrorContains(t, err, "identity mismatch")
+}
+
 // TestStartWatchOnlyWalletNeedsRemoteSigner checks a watch-only start is
 // refused before the daemon starts without a remote signer, and that
 // Config.RemoteSigner reaches the daemon config.
