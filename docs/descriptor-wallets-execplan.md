@@ -287,11 +287,23 @@ VTXOs.
   repository has no findings. It matches on names and skips test files. CI's
   `ast-grep rules` job runs it and the rule tests. The Makefile now calls
   `ast-grep`, because `sg` is a different command on most Linux hosts.
+- [x] (2026-11-04) Watch-only wallets for JavaScript hosts. `wavelength-sdk`:
+  `WatchOnlyWalletClient.startWatchOnlyWallet` in core, the `remoteSigner*`
+  config fields, and React Native dispatch. `wavelength-wdk`: the Bare addon
+  verb and `openWatchOnlyAccount`, which sits beside
+  `WalletManagerWavelength` because the manager needs a seed. A browser or
+  desktop WASM runtime refuses before dispatch; the bridge has no verb for
+  it. An SDK request through the wdk native transport into
+  `parseWatchOnlyWalletStartRequest` kept every field. Not run: the iOS addon
+  and React Native native code, which need a device build, and any real signer
+  from JavaScript. wdk's pins stay at the current release, so it needs a
+  `wavelength-core` release first.
 - [ ] Not started:
   - signer-side spending policy;
   - manifests for in-process account-key wallets (a local `wavesigner`
     covers them on native platforms);
-  - wavelength-wdk bindings for watch-only wallets;
+  - a public wavelength-wdk entry for descriptor wallets, whose verbs the
+    addon exports but nothing public calls;
   - a completed Ark round against a real operator.
 
 
@@ -2298,3 +2310,7 @@ inbound-connection ownership decision, and listed what remains.
 Revision note (2026-11-04, logging rule): added the ast-grep rule against
 logging descriptors, now that ast-grep could be run to verify it, and removed
 it from the list of remaining work.
+
+Revision note (2026-11-04, JavaScript hosts): recorded the watch-only client
+in `wavelength-sdk` and `wavelength-wdk`, and listed the matching gap for
+descriptor wallets, which the wdk work turned up.
