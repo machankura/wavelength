@@ -214,6 +214,37 @@ type ExternalSeedWalletOpenResult struct {
 	RecoveredOORRecipientEvents uint32
 }
 
+// DescriptorWalletOpenResult reports a descriptor wallet import or unlock,
+// the public descriptors it watches, and the optional state-recovery scan.
+type DescriptorWalletOpenResult struct {
+	Imported                    bool
+	IdentityPubKey              string
+	RootFingerprint             string
+	Descriptors                 []string
+	RecoveryRan                 bool
+	RecoveredBoardingAddresses  uint32
+	RecoveredBoardingUTXOs      uint32
+	RecoveredVTXOs              uint32
+	RecoveredOORReceiveScripts  uint32
+	RecoveredOORRecipientEvents uint32
+}
+
+// WatchOnlyWalletOpenResult reports a watch-only wallet import or unlock
+// and the optional state-recovery scan.
+type WatchOnlyWalletOpenResult struct {
+	Imported                    bool
+	IdentityPubKey              string
+	RootFingerprint             string
+	ManifestHash                string
+	Descriptors                 []string
+	RecoveryRan                 bool
+	RecoveredBoardingAddresses  uint32
+	RecoveredBoardingUTXOs      uint32
+	RecoveredVTXOs              uint32
+	RecoveredOORReceiveScripts  uint32
+	RecoveredOORRecipientEvents uint32
+}
+
 // Balance is the wallet-level balance view.
 type Balance struct {
 	ConfirmedSat       int64

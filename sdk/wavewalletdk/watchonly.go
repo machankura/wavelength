@@ -36,22 +36,6 @@ type WatchOnlyWalletRequest struct {
 	RecoveryWindow         uint32
 }
 
-// WatchOnlyWalletOpenResult reports a watch-only wallet import or unlock
-// and the optional state-recovery scan.
-type WatchOnlyWalletOpenResult struct {
-	Imported                    bool
-	IdentityPubKey              string
-	RootFingerprint             string
-	ManifestHash                string
-	Descriptors                 []string
-	RecoveryRan                 bool
-	RecoveredBoardingAddresses  uint32
-	RecoveredBoardingUTXOs      uint32
-	RecoveredVTXOs              uint32
-	RecoveredOORReceiveScripts  uint32
-	RecoveredOORRecipientEvents uint32
-}
-
 // StartWatchOnlyWallet starts an embedded daemon at the explicit
 // Config.DataDir with Config.RemoteSigner, then imports a fresh watch-only
 // wallet from the request or unlocks the one already there. If opening
