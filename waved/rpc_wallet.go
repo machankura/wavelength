@@ -522,6 +522,14 @@ func (r *RPCServer) InitWallet(ctx context.Context,
 				"unable to start wallet: %v", err)
 
 		case target == WalletStateLocked:
+			// The retry goes through UnlockWallet, which never sees
+			// this request, so this is the last chance to record
+			// the origin for descriptor export.
+			r.recordWalletKeyOrigin(ctx, db.WalletKeyOrigin{
+				RootFingerprint: created.rootFingerprint,
+				Source:          created.source,
+			})
+
 			return nil, status.Errorf(codes.Internal, "unable to "+
 				"start wallet: %v (the wallet database was "+
 				"created; retry via UnlockWallet)", err)
