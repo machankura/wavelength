@@ -41,12 +41,19 @@ make ast-lint pkg=<dir>          # Focus on a directory
 make ast-grep-fix                # Auto-fix safe issues
 make ast-grep-fix pkg=<dir>      # Fix in a specific directory
 sg scan --interactive            # Review fixes one by one
-ast-grep test --skip-snapshot-tests  # Run the rule tests in rule-tests/
+make ast-lint-enforced           # Only the rules CI enforces
+make ast-lint-test               # Run the rule tests in rule-tests/
 ```
 
 `make ast-lint` fails only on `error`-severity rules. The style rules are
-warnings, with many existing findings, and do not fail it. CI does not run
-`make ast-lint`, so these rules are a local check.
+warnings, with many existing findings, and do not fail it.
+
+CI's `ast-grep rules` job runs `make ast-lint-test` and
+`make ast-lint-enforced`, with the ast-grep version pinned in
+`.github/workflows/main.yml`. It leaves out the style rules because their
+findings run to thousands of lines and would bury a failure. To enforce a new
+rule in CI, make it `error` severity and add it to `AST_GREP_ENFORCED` in the
+Makefile.
 
 ## Rules Enforced
 

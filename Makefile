@@ -1,6 +1,6 @@
 .PHONY: sqlc sqlc-check migrate-create migrate-up migrate-down gen
 .PHONY: lint lint-source lint-local lint-source-local lint-changed-local lint-native build-native-linter local-custom-gcl install-custom-gcl docker-tools fmt fmt-changed fmt-check fmt-changed-check tidy-module tidy-module-check schema-check doc-check sample-conf-check
-.PHONY: ast-lint ast-grep-fix actorblock-build actorblock-test actorblock-check
+.PHONY: ast-lint ast-lint-enforced ast-lint-test ast-grep-fix actorblock-build actorblock-test actorblock-check
 .PHONY: unit unit-cover unit-race unit-swapruntime check-go-version build install clean release
 .PHONY: release-install cross-release-install docker-release
 .PHONY: build build-swapruntime build-swapclient build-wavewalletrpc rpc install install-swapruntime install-wavewalletrpc help clean-networks
@@ -303,6 +303,18 @@ AST_GREP_PATH := $(if $(pkg),$(pkg),.)
 ast-lint: #? Run ast-grep style checks (requires ast-grep installed). Use pkg=<dir> to focus on a specific directory.
 	@$(call print, "Running ast-grep style checks.")
 	$(AST_GREP) scan $(AST_GREP_EXCLUDE) $(AST_GREP_PATH)
+
+# The rules CI enforces, as a regex alternation. The style rules are warnings
+# with thousands of lines of existing findings, which would bury a failure.
+AST_GREP_ENFORCED := no-logged-key-material
+
+ast-lint-enforced: #? Run only the ast-grep rules CI enforces (requires ast-grep installed).
+	@$(call print, "Running enforced ast-grep rules.")
+	$(AST_GREP) scan --filter '^($(AST_GREP_ENFORCED))$$' $(AST_GREP_EXCLUDE) $(AST_GREP_PATH)
+
+ast-lint-test: #? Run the ast-grep rule tests in rule-tests/ (requires ast-grep installed).
+	@$(call print, "Running ast-grep rule tests.")
+	$(AST_GREP) test --skip-snapshot-tests
 
 ast-grep-fix: #? Auto-fix ast-grep style issues (requires ast-grep installed). Use pkg=<dir> to focus on a specific directory.
 	@$(call print, "Auto-fixing ast-grep style issues.")

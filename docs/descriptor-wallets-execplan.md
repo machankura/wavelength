@@ -284,9 +284,9 @@ VTXOs.
   `rules/go-secrets.yml` (`no-logged-key-material`) fails `make ast-lint`
   when descriptor text, bundles, auth keys or a mnemonic reach a logger.
   Verified with 33 cases in `rule-tests/` and a planted call in `waved`; the
-  repository has no findings. It matches on names, skips test files, and CI
-  does not run `make ast-lint`. The Makefile now calls `ast-grep`, because
-  `sg` is a different command on most Linux hosts.
+  repository has no findings. It matches on names and skips test files. CI's
+  `ast-grep rules` job runs it and the rule tests. The Makefile now calls
+  `ast-grep`, because `sg` is a different command on most Linux hosts.
 - [ ] Not started:
   - signer-side spending policy;
   - manifests for in-process account-key wallets (a local `wavesigner`

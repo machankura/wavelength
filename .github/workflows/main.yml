@@ -158,6 +158,29 @@ jobs:
         run: GOGC=50 make lint
 
   ########################
+  # ast-grep rules
+  ########################
+  ast-lint:
+    name: ast-grep rules
+    runs-on: ubuntu-latest
+    # Installing from npm runs the package's postinstall script, so this job
+    # does not need the workflow's write access to the cache.
+    permissions:
+      contents: read
+    env:
+      # Pinned so a new release cannot change what the rules match.
+      AST_GREP_VERSION: 0.51.0
+    steps:
+      - name: git checkout
+        uses: actions/checkout@v5
+
+      - name: Test the rules
+        run: npx -y -p "@ast-grep/cli@$AST_GREP_VERSION" make ast-lint-test
+
+      - name: Check enforced rules
+        run: npx -y -p "@ast-grep/cli@$AST_GREP_VERSION" make ast-lint-enforced
+
+  ########################
   # P formal model check
   ########################
   p-model:
