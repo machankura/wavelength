@@ -283,11 +283,17 @@ message CreateRequest {
     // waverpc.InitWalletRequest.watch_only_bundle for the accepted forms.
     bytes watch_only_bundle = 8;
 
-    // watch_only_manifest, auth_keys and override_identity create a
-    // wallet whose fund slots come from several keys. See
-    // waverpc.InitWalletRequest for each.
+    // watch_only_manifest creates a wallet whose fund slots come from
+    // several keys. See waverpc.InitWalletRequest.watch_only_manifest.
     bytes watch_only_manifest = 9;
+
+    // auth_keys holds the authentication families' private keys that go
+    // with watch_only_manifest. Secret.
     bytes auth_keys = 10;
+
+    // override_identity allows a manifest that replaces key family 6,
+    // which gives the new wallet a different identity. See
+    // waverpc.InitWalletRequest.override_identity.
     bool override_identity = 11;
 }
 

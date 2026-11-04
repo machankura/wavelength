@@ -768,14 +768,18 @@ type CreateRequest struct {
 	// private keys stay on a remote signer. See
 	// waverpc.InitWalletRequest.watch_only_bundle for the accepted forms.
 	WatchOnlyBundle []byte `protobuf:"bytes,8,opt,name=watch_only_bundle,json=watchOnlyBundle,proto3" json:"watch_only_bundle,omitempty"`
-	// watch_only_manifest, auth_keys and override_identity create a
-	// wallet whose fund slots come from several keys. See
-	// waverpc.InitWalletRequest for each.
+	// watch_only_manifest creates a wallet whose fund slots come from
+	// several keys. See waverpc.InitWalletRequest.watch_only_manifest.
 	WatchOnlyManifest []byte `protobuf:"bytes,9,opt,name=watch_only_manifest,json=watchOnlyManifest,proto3" json:"watch_only_manifest,omitempty"`
-	AuthKeys          []byte `protobuf:"bytes,10,opt,name=auth_keys,json=authKeys,proto3" json:"auth_keys,omitempty"`
-	OverrideIdentity  bool   `protobuf:"varint,11,opt,name=override_identity,json=overrideIdentity,proto3" json:"override_identity,omitempty"`
-	unknownFields     protoimpl.UnknownFields
-	sizeCache         protoimpl.SizeCache
+	// auth_keys holds the authentication families' private keys that go
+	// with watch_only_manifest. Secret.
+	AuthKeys []byte `protobuf:"bytes,10,opt,name=auth_keys,json=authKeys,proto3" json:"auth_keys,omitempty"`
+	// override_identity allows a manifest that replaces key family 6,
+	// which gives the new wallet a different identity. See
+	// waverpc.InitWalletRequest.override_identity.
+	OverrideIdentity bool `protobuf:"varint,11,opt,name=override_identity,json=overrideIdentity,proto3" json:"override_identity,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
 }
 
 func (x *CreateRequest) Reset() {
