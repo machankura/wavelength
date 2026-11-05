@@ -133,10 +133,23 @@ func (f *fakeIndex) addBlock(t *testing.T, height int32,
 
 	t.Helper()
 
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	// Link to the block below when there is one, which a tip poller
+	// following the fake needs in order to walk the chain.
+	var prevBlock chainhash.Hash
+	if prevHash, ok := f.heights[height-1]; ok {
+		hash, err := chainhash.NewHashFromStr(prevHash)
+		require.NoError(t, err)
+		prevBlock = *hash
+	}
+
 	blockTime := time.Unix(1_700_000_000+int64(height), 0)
 	block := &wire.MsgBlock{
 		Header: wire.BlockHeader{
 			Version:   2,
+			PrevBlock: prevBlock,
 			Timestamp: blockTime,
 			Nonce:     uint32(height),
 		},
@@ -147,10 +160,8 @@ func (f *fakeIndex) addBlock(t *testing.T, height int32,
 	}
 	blockHash := block.BlockHash()
 
-	f.mu.Lock()
 	f.blocks[blockHash.String()] = block
 	f.heights[height] = blockHash.String()
-	f.mu.Unlock()
 
 	return wtxmgr.BlockMeta{
 		Block: wtxmgr.Block{
