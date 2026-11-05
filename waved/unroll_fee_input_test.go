@@ -11,6 +11,7 @@ import (
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/chaincfg/v2"
+	"github.com/btcsuite/btcd/psbt/v2"
 	"github.com/btcsuite/btcd/txscript/v2"
 	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/btcsuite/btclog/v2"
@@ -101,6 +102,47 @@ func TestLwUnrollWalletListUnspentExcludesImported(t *testing.T) {
 		t, containsFeeInput(feeInputs, importedOp),
 		"imported boarding output must remain excluded",
 	)
+}
+
+// TestLwUnrollWalletFundPsbtChangeIsTaproot pins funding change to BIP86. A
+// wallet created without a wpkh() account holds a placeholder under BIP84 that
+// nobody can spend, and BIP84 is where lnd sends change when not told
+// otherwise.
+func TestLwUnrollWalletFundPsbtChangeIsTaproot(t *testing.T) {
+	t.Parallel()
+
+	w := newFundedLwWallet(t)
+	ctx := t.Context()
+	uw := &lwUnrollWallet{Wallet: w}
+
+	addr, err := w.NewAddress(ctx)
+	require.NoError(t, err)
+	script, err := txscript.PayToAddrScript(addr)
+	require.NoError(t, err)
+	fundConfirmedUTXO(t, w, script)
+
+	destination := []byte{txscript.OP_1, txscript.OP_DATA_32}
+	destination = append(destination, make([]byte, 32)...)
+	packet, err := psbt.New(
+		nil, []*wire.TxOut{wire.NewTxOut(100_000, destination)}, 2, 0,
+		nil,
+	)
+	require.NoError(t, err)
+	var packetBytes bytes.Buffer
+	require.NoError(t, packet.Serialize(&packetBytes))
+
+	funded, err := uw.FundPsbt(
+		ctx, packetBytes.Bytes(), 2, wallet.LockID{1}, time.Hour,
+	)
+	require.NoError(t, err)
+	require.Len(t, funded.TxOut, 2, "expected a change output")
+
+	for _, out := range funded.TxOut {
+		require.True(
+			t, txscript.IsPayToTaproot(out.PkScript),
+			"output %x is not taproot", out.PkScript,
+		)
+	}
 }
 
 // newFundedLwWallet builds and starts a real lwwallet backed by a mock

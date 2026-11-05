@@ -24,6 +24,7 @@ import (
 	"github.com/btcsuite/btcd/txscript/v2"
 	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/btcsuite/btclog/v2"
+	"github.com/btcsuite/btcwallet/waddrmgr"
 	btcwalletpkg "github.com/btcsuite/btcwallet/wallet"
 	"github.com/btcsuite/btcwallet/wtxmgr"
 	"github.com/lightninglabs/lndclient"
@@ -5877,9 +5878,12 @@ func (w *lwUnrollWallet) FundPsbt(ctx context.Context, packetBytes []byte,
 		return nil, fmt.Errorf("parse PSBT: %w", err)
 	}
 
+	// Left unset, lnd sends change to BIP84. A wallet created without a
+	// wpkh() account holds a placeholder there that nobody can spend, so
+	// change goes to BIP86, which every wallet holds.
 	_, err = w.Wallet.Controller.FundPsbt(
 		packet, 1, chainfee.SatPerKWeight(feeRateSatPerVByte*250),
-		lnwallet.DefaultAccountName, nil,
+		lnwallet.DefaultAccountName, &waddrmgr.KeyScopeBIP0086,
 		btcwalletpkg.CoinSelectionLargest, nil,
 	)
 	if err != nil {
@@ -6019,9 +6023,12 @@ func (w *btcwUnrollWallet) FundPsbt(ctx context.Context, packetBytes []byte,
 		return nil, fmt.Errorf("parse PSBT: %w", err)
 	}
 
+	// Left unset, lnd sends change to BIP84. A wallet created without a
+	// wpkh() account holds a placeholder there that nobody can spend, so
+	// change goes to BIP86, which every wallet holds.
 	_, err = w.Wallet.Controller.FundPsbt(
 		packet, 1, chainfee.SatPerKWeight(feeRateSatPerVByte*250),
-		lnwallet.DefaultAccountName, nil,
+		lnwallet.DefaultAccountName, &waddrmgr.KeyScopeBIP0086,
 		btcwalletpkg.CoinSelectionLargest, nil,
 	)
 	if err != nil {
