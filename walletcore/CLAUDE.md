@@ -105,6 +105,15 @@ btcwallet.BtcWallet regardless of the underlying chain source.
 - Opening a watch-only wallet first checks the database exists:
   `btcwallet.New` would otherwise create a key-holding wallet from a random
   seed. A database that holds private keys is refused in watch-only mode.
+- Every wallet built from imported accounts holds account 0 in the BIP49 and
+  BIP84 scopes, because lnd activates both and btcwallet's recovery fails
+  with "account 0 not found" on an empty active scope, on every sync.
+  `importScopePlaceholders` fills whichever the bundle omits with a key
+  discarded at import, under an account not named "default" so descriptor
+  export does not report it. Nothing sent there could be spent, so a wallet
+  must receive and take change on BIP86 only, and callers of `FundPsbt` pass
+  `KeyScopeBIP0086`: lnd defaults change to BIP84. BIP86 itself is never
+  filled in, so a wallet without it keeps failing.
 - Imported accounts must get the number their key was derived at;
   `NewWatchOnlyBtcWallet` checks each import's `AccountNumber`, since
   btcwallet assigns one past the scope's last account.

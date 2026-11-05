@@ -3,12 +3,19 @@ package walletcore
 import (
 	"errors"
 	"fmt"
+	"slices"
 
+	"github.com/btcsuite/btcd/chaincfg/v2"
 	"github.com/btcsuite/btcwallet/waddrmgr"
+	"github.com/btcsuite/btcwallet/wallet"
 	"github.com/lightninglabs/wavelength/walletdesc"
 	"github.com/lightningnetwork/lnd/blockcache"
 	"github.com/lightningnetwork/lnd/lnwallet/btcwallet"
 )
+
+// placeholderAccountName names the account that fills an on-chain scope a
+// bundle left empty.
+const placeholderAccountName = "placeholder"
 
 var (
 	// ErrBundleAndSeed is returned when a watch-only bundle is combined
@@ -132,6 +139,15 @@ func NewWatchOnlyBtcWallet(cfg btcwallet.Config,
 		}
 	}
 
+	if err := importScopePlaceholders(
+		w, cfg.NetParams, bundle,
+	); err != nil {
+
+		closeWallet()
+
+		return nil, err
+	}
+
 	cfg.Wallet = w
 	btcw, err := btcwallet.New(cfg, blockCache)
 	if err != nil {
@@ -141,6 +157,61 @@ func NewWatchOnlyBtcWallet(cfg btcwallet.Config,
 	}
 
 	return btcw, nil
+}
+
+// importScopePlaceholders gives account 0 to each of lnd's default on-chain
+// scopes that the bundle leaves empty. lnd activates those scopes in every
+// wallet, and btcwallet's recovery reads account 0 of each active scope, so
+// one empty scope makes every sync fail with "account 0 not found".
+//
+// The placeholder's key is discarded, so nothing sent to it could be spent.
+// Wavelength receives and takes change on BIP86 only, and BIP86 is not filled
+// in here: a wallet without it must keep failing. The account's name is not
+// "default", so descriptor export does not take its key for a real one.
+func importScopePlaceholders(w *wallet.Wallet, params *chaincfg.Params,
+	bundle *walletdesc.WatchOnlyBundle) error {
+
+	scopes := []waddrmgr.KeyScope{
+		waddrmgr.KeyScopeBIP0049Plus, waddrmgr.KeyScopeBIP0084,
+	}
+	for _, scope := range scopes {
+		supplied := slices.ContainsFunc(
+			bundle.Accounts, func(
+				a walletdesc.WatchOnlyAccount) bool {
+
+				return a.Purpose == scope.Purpose &&
+					a.CoinType == scope.Coin &&
+					a.Account == 0
+			},
+		)
+		if supplied {
+			continue
+		}
+
+		key, err := walletdesc.PlaceholderAccountKey(
+			scope.Purpose, scope.Coin, params,
+		)
+		if err != nil {
+			return fmt.Errorf("create placeholder for scope %v: %w",
+				scope, err)
+		}
+
+		props, err := w.ImportAccountWithScope(
+			placeholderAccountName, key, 0, scope,
+			watchOnlyAddrSchema(scope),
+		)
+		if err != nil {
+			return fmt.Errorf("import placeholder for scope %v: %w",
+				scope, err)
+		}
+		if props.AccountNumber != 0 {
+			return fmt.Errorf("import placeholder for scope %v: "+
+				"wallet numbered it %d", scope,
+				props.AccountNumber)
+		}
+	}
+
+	return nil
 }
 
 // watchOnlyAccountName names an imported account the way lnd does: index

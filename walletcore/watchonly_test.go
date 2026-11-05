@@ -3,6 +3,7 @@ package walletcore_test
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -142,6 +143,91 @@ func closeBtcWallet(t *testing.T, btcw *btcwallet.BtcWallet) {
 	require.NoError(t, btcw.InternalWallet().Database().Close())
 }
 
+// TestWatchOnlyWalletFillsEmptyScopes checks that a wallet created from a
+// bundle holds account 0 in every default on-chain scope, which btcwallet's
+// recovery reads on every sync, and that only scopes the bundle left empty
+// get a placeholder. Descriptor export finds an account by the name "default",
+// so a placeholder must not answer to it.
+func TestWatchOnlyWalletFillsEmptyScopes(t *testing.T) {
+	t.Parallel()
+
+	params := &chaincfg.RegressionNetParams
+	signer := newSeedSigner(t, params, testSeed())
+	full := signer.bundle(t, params)
+
+	withoutWpkh := *full
+	withoutWpkh.Accounts = slices.DeleteFunc(
+		slices.Clone(full.Accounts),
+		func(a walletdesc.WatchOnlyAccount) bool {
+			return a.Purpose == waddrmgr.KeyScopeBIP0084.Purpose
+		},
+	)
+
+	tests := []struct {
+		name        string
+		bundle      *walletdesc.WatchOnlyBundle
+		placeholder []waddrmgr.KeyScope
+		real        []waddrmgr.KeyScope
+	}{{
+		name:   "with wpkh",
+		bundle: full,
+		placeholder: []waddrmgr.KeyScope{
+			waddrmgr.KeyScopeBIP0049Plus,
+		},
+		real: []waddrmgr.KeyScope{
+			waddrmgr.KeyScopeBIP0084, waddrmgr.KeyScopeBIP0086,
+		},
+	}, {
+		name:   "without wpkh",
+		bundle: &withoutWpkh,
+		placeholder: []waddrmgr.KeyScope{
+			waddrmgr.KeyScopeBIP0049Plus, waddrmgr.KeyScopeBIP0084,
+		},
+		real: []waddrmgr.KeyScope{
+			waddrmgr.KeyScopeBIP0086,
+		},
+	}}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			btcw, err := walletcore.NewWatchOnlyBtcWallet(
+				watchOnlyConfig(
+					params, t.TempDir(), watchOnlyPassword,
+				),
+				test.bundle,
+				blockcache.NewBlockCache(10),
+			)
+			require.NoError(t, err)
+			defer closeBtcWallet(t, btcw)
+
+			w := btcw.InternalWallet()
+			for _, scope := range test.placeholder {
+				props, err := w.AccountProperties(scope, 0)
+				require.NoError(t, err)
+				require.NotEqual(
+					t, "default", props.AccountName,
+				)
+
+				_, err = btcw.ListAccounts("default", &scope)
+				require.Error(t, err)
+			}
+			for _, scope := range test.real {
+				props, err := w.AccountProperties(scope, 0)
+				require.NoError(t, err)
+				require.Equal(t, "default", props.AccountName)
+
+				accounts, err := btcw.ListAccounts(
+					"default", &scope,
+				)
+				require.NoError(t, err)
+				require.Len(t, accounts, 1)
+			}
+		})
+	}
+}
+
 // TestWatchOnlyWalletMatchesSigner proves a watch-only wallet built from a
 // signer's exported accounts derives the signer's keys and addresses, that
 // it satisfies the account setup btcwallet runs on start, and that it
@@ -171,18 +257,14 @@ func TestWatchOnlyWalletMatchesSigner(t *testing.T) {
 			require.True(t, w.AddrManager().WatchOnly())
 
 			// btcwallet.Start ensures every key family account
-			// exists and adds missing default scopes; neither may
-			// need the master key the wallet does not have.
+			// exists, which must not need the master key the wallet
+			// does not have. It would also add a missing default
+			// scope, but creation already filled them all.
 			scope, err := w.AddrManager().FetchScopedKeyManager(
 				familyScope(params),
 			)
 			require.NoError(t, err)
 			require.NoError(t, w.InitAccounts(scope, false, 255))
-			nested := waddrmgr.KeyScopeBIP0049Plus
-			_, err = w.AddScopeManager(
-				nested, waddrmgr.ScopeAddrMap[nested],
-			)
-			require.NoError(t, err)
 
 			ring := keychain.NewBtcWalletKeyRing(
 				w, walletcore.CoinTypeForNet(params),

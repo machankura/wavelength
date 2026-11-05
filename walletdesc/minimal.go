@@ -50,6 +50,36 @@ func (m *MinimalBundle) Supplied() []keychain.KeyFamily {
 	return families
 }
 
+// PlaceholderAccountKey returns a public key for account 0 of the given
+// purpose and coin type, derived from a random key that is discarded before
+// returning. No private key exists for it anywhere, so a wallet must never
+// hand out an address from it.
+func PlaceholderAccountKey(purpose, coin uint32,
+	params *chaincfg.Params) (*hdkeychain.ExtendedKey, error) {
+
+	seed, err := hdkeychain.GenerateSeed(hdkeychain.RecommendedSeedLen)
+	if err != nil {
+		return nil, err
+	}
+	root, err := hdkeychain.NewMaster(seed, params)
+	clear(seed)
+	if err != nil {
+		return nil, err
+	}
+	defer root.Zero()
+
+	key, err := deriveHardened(
+		root, []uint32{hardened(purpose), hardened(coin), hardened(0)},
+		false,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer key.Zero()
+
+	return independentPublic(key)
+}
+
 // WithPlaceholders returns the complete watch-only bundle to import: the
 // supplied accounts, the local families' public halves, and a placeholder
 // public key for every other family from 0 to 255, so btcwallet finds every
