@@ -180,8 +180,10 @@ hardened path derives a different key under standard BIP32 than under the
 legacy derivation the wallet backend uses (about one key in 256) would
 make the wallet watch other addresses than the descriptor describes.
 `wavecli descriptors --private` renders such a script type as an
-account-level descriptor instead, which other wallets import correctly
-(Wavelength itself does not import account-level descriptors yet).
+account-level descriptor instead, which other wallets import correctly.
+Wavelength imports account-level keys only together with its key families;
+see "Create from account-level keys" in
+[`docs/daemon_cli_guide.md`](daemon_cli_guide.md).
 Test-network descriptors that use coin type `1h` are refused because the
 wallet uses `0h` on every network.
 
