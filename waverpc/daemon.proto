@@ -30,13 +30,13 @@ service DaemonService {
     rpc UnlockWallet (UnlockWalletRequest) returns (UnlockWalletResponse);
 
     // ListWalletDescriptors returns the output descriptors of the
-    // self-managed wallet: by default the public account-level tr and wpkh
-    // descriptors, which are safe to import into watch-only software. With
-    // include_private the caller must resupply the wallet's mnemonic or
-    // root descriptors; the daemon checks them against the open wallet and
-    // only then renders private descriptors, so an unlocked daemon never
-    // reveals key material on its own. Only available in lwwallet and
-    // btcwallet mode once the wallet is ready.
+    // self-managed wallet: by default the public account-level tr descriptor,
+    // and the wpkh one when the wallet holds that account, which are safe to
+    // import into watch-only software. With include_private the caller must
+    // resupply the wallet's mnemonic or root descriptors; the daemon checks
+    // them against the open wallet and only then renders private descriptors,
+    // so an unlocked daemon never reveals key material on its own. Only
+    // available in lwwallet and btcwallet mode once the wallet is ready.
     rpc ListWalletDescriptors (ListWalletDescriptorsRequest)
         returns (ListWalletDescriptorsResponse);
 
@@ -647,12 +647,14 @@ message ListWalletDescriptorsRequest {
 message ListWalletDescriptorsResponse {
     // root_fingerprint is the hex-encoded BIP32 fingerprint of the wallet's
     // master key. Empty for a wallet created before the daemon recorded
-    // fingerprints and not yet exported with include_private; its public
-    // descriptors then carry no key origin.
+    // fingerprints and not yet exported with include_private, or whose
+    // on-chain account a manifest took from elsewhere; its public descriptors
+    // then carry no key origin.
     string root_fingerprint = 1;
 
-    // descriptors are the tr and wpkh descriptors with checksums. They are
-    // private exactly when includes_private is true.
+    // descriptors are the tr descriptor and, when the wallet holds that
+    // account or include_private is set, the wpkh one, with checksums. They
+    // are private exactly when includes_private is true.
     repeated string descriptors = 2;
 
     // includes_private reports whether descriptors contain private keys.

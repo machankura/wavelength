@@ -49,7 +49,7 @@ func generatedRegistry() []serviceSpec {
 					Aliases:  []string{"list-wallet-descriptors"},
 					Input:    "waverpc.ListWalletDescriptorsRequest",
 					Output:   "waverpc.ListWalletDescriptorsResponse",
-					Comments: "ListWalletDescriptors returns the output descriptors of the\nself-managed wallet: by default the public account-level tr and wpkh\ndescriptors, which are safe to import into watch-only software. With\ninclude_private the caller must resupply the wallet's mnemonic or\nroot descriptors; the daemon checks them against the open wallet and\nonly then renders private descriptors, so an unlocked daemon never\nreveals key material on its own. Only available in lwwallet and\nbtcwallet mode once the wallet is ready.",
+					Comments: "ListWalletDescriptors returns the output descriptors of the\nself-managed wallet: by default the public account-level tr descriptor,\nand the wpkh one when the wallet holds that account, which are safe to\nimport into watch-only software. With include_private the caller must\nresupply the wallet's mnemonic or root descriptors; the daemon checks\nthem against the open wallet and only then renders private descriptors,\nso an unlocked daemon never reveals key material on its own. Only\navailable in lwwallet and btcwallet mode once the wallet is ready.",
 				},
 				{
 					Name:     "ExportWatchOnlyBundle",

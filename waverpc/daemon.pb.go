@@ -1860,11 +1860,13 @@ type ListWalletDescriptorsResponse struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// root_fingerprint is the hex-encoded BIP32 fingerprint of the wallet's
 	// master key. Empty for a wallet created before the daemon recorded
-	// fingerprints and not yet exported with include_private; its public
-	// descriptors then carry no key origin.
+	// fingerprints and not yet exported with include_private, or whose
+	// on-chain account a manifest took from elsewhere; its public descriptors
+	// then carry no key origin.
 	RootFingerprint string `protobuf:"bytes,1,opt,name=root_fingerprint,json=rootFingerprint,proto3" json:"root_fingerprint,omitempty"`
-	// descriptors are the tr and wpkh descriptors with checksums. They are
-	// private exactly when includes_private is true.
+	// descriptors are the tr descriptor and, when the wallet holds that
+	// account or include_private is set, the wpkh one, with checksums. They
+	// are private exactly when includes_private is true.
 	Descriptors []string `protobuf:"bytes,2,rep,name=descriptors,proto3" json:"descriptors,omitempty"`
 	// includes_private reports whether descriptors contain private keys.
 	IncludesPrivate bool `protobuf:"varint,3,opt,name=includes_private,json=includesPrivate,proto3" json:"includes_private,omitempty"`

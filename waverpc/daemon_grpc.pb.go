@@ -97,13 +97,13 @@ type DaemonServiceClient interface {
 	// lwwallet mode when the wallet is locked.
 	UnlockWallet(ctx context.Context, in *UnlockWalletRequest, opts ...grpc.CallOption) (*UnlockWalletResponse, error)
 	// ListWalletDescriptors returns the output descriptors of the
-	// self-managed wallet: by default the public account-level tr and wpkh
-	// descriptors, which are safe to import into watch-only software. With
-	// include_private the caller must resupply the wallet's mnemonic or
-	// root descriptors; the daemon checks them against the open wallet and
-	// only then renders private descriptors, so an unlocked daemon never
-	// reveals key material on its own. Only available in lwwallet and
-	// btcwallet mode once the wallet is ready.
+	// self-managed wallet: by default the public account-level tr descriptor,
+	// and the wpkh one when the wallet holds that account, which are safe to
+	// import into watch-only software. With include_private the caller must
+	// resupply the wallet's mnemonic or root descriptors; the daemon checks
+	// them against the open wallet and only then renders private descriptors,
+	// so an unlocked daemon never reveals key material on its own. Only
+	// available in lwwallet and btcwallet mode once the wallet is ready.
 	ListWalletDescriptors(ctx context.Context, in *ListWalletDescriptorsRequest, opts ...grpc.CallOption) (*ListWalletDescriptorsResponse, error)
 	// ExportWatchOnlyBundle returns the bundle a watch-only daemon is
 	// created from when this wallet's keys move to a remote signer: every
@@ -843,13 +843,13 @@ type DaemonServiceServer interface {
 	// lwwallet mode when the wallet is locked.
 	UnlockWallet(context.Context, *UnlockWalletRequest) (*UnlockWalletResponse, error)
 	// ListWalletDescriptors returns the output descriptors of the
-	// self-managed wallet: by default the public account-level tr and wpkh
-	// descriptors, which are safe to import into watch-only software. With
-	// include_private the caller must resupply the wallet's mnemonic or
-	// root descriptors; the daemon checks them against the open wallet and
-	// only then renders private descriptors, so an unlocked daemon never
-	// reveals key material on its own. Only available in lwwallet and
-	// btcwallet mode once the wallet is ready.
+	// self-managed wallet: by default the public account-level tr descriptor,
+	// and the wpkh one when the wallet holds that account, which are safe to
+	// import into watch-only software. With include_private the caller must
+	// resupply the wallet's mnemonic or root descriptors; the daemon checks
+	// them against the open wallet and only then renders private descriptors,
+	// so an unlocked daemon never reveals key material on its own. Only
+	// available in lwwallet and btcwallet mode once the wallet is ready.
 	ListWalletDescriptors(context.Context, *ListWalletDescriptorsRequest) (*ListWalletDescriptorsResponse, error)
 	// ExportWatchOnlyBundle returns the bundle a watch-only daemon is
 	// created from when this wallet's keys move to a remote signer: every
