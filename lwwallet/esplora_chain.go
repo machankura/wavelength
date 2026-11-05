@@ -56,6 +56,11 @@ type EsploraChainService struct {
 	// back into a later block is still found.
 	watchedOutpoints map[wire.OutPoint]struct{}
 
+	// lookahead, when set, issues addresses the wallet has not handed out
+	// yet when a new block pays them. It is set before Start and used only
+	// from the chain event goroutine.
+	lookahead *addressLookahead
+
 	// bestBlock caches the current chain tip, updated on each
 	// processed TipBlock event.
 	bestBlock waddrmgr.BlockStamp
@@ -1358,7 +1363,8 @@ func (s *EsploraChainService) processReorgEvent(ctx context.Context,
 // TipBlock event re-walks whatever stretch is missing.
 //
 // The full block is only fetched when there is at least one watched
-// address; without watchers there can be no relevant transactions, so
+// address or an address lookahead; without either there can be no
+// relevant transactions, so
 // the EsploraClient's raw-block call (and the associated bandwidth)
 // is skipped.
 func (s *EsploraChainService) processTipEvent(ctx context.Context,
@@ -1506,10 +1512,29 @@ func (s *EsploraChainService) deliverHeight(ctx context.Context,
 	// hash so concurrent consumers (e.g. boarding tx-proof
 	// builders) reuse the response.
 	var relevantTxs []*wtxmgr.TxRecord
-	if len(watchedScripts) > 0 {
+	if len(watchedScripts) > 0 || s.lookahead != nil {
 		block, err := s.esplora.GetRawBlock(ctx, hash)
 		if err != nil {
 			s.log.WarnS(ctx, "Chain service block fetch failed",
+				err,
+				slog.Int("height", int(height)),
+			)
+
+			return false
+		}
+
+		// Addresses this block pays have to be in btcwallet's database
+		// before it sees the block, because it drops payments to
+		// addresses it does not know. Failing here leaves s.bestBlock
+		// behind so the next event retries, rather than moving past a
+		// block that may pay the wallet.
+		if err := s.claimLookahead(
+			ctx, block, height, watchedScripts,
+		); err != nil {
+
+			s.log.WarnS(
+				ctx,
+				"Chain service address lookahead failed",
 				err,
 				slog.Int("height", int(height)),
 			)
@@ -1562,6 +1587,46 @@ func (s *EsploraChainService) deliverHeight(ctx context.Context,
 	s.mu.Unlock()
 
 	return true
+}
+
+// claimLookahead issues the unissued addresses the block pays, starts watching
+// them, and adds them to the given scripts so the block's own filtering sees
+// them.
+func (s *EsploraChainService) claimLookahead(ctx context.Context,
+	block *wire.MsgBlock, height int32,
+	watchedScripts map[string]struct{}) error {
+
+	if s.lookahead == nil {
+		return nil
+	}
+
+	claimed, err := s.lookahead.claim(block)
+	if err != nil {
+		return err
+	}
+	if len(claimed) == 0 {
+		return nil
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	for _, addr := range claimed {
+		pkScript, err := txscript.PayToAddrScript(addr)
+		if err != nil {
+			return fmt.Errorf("pkScript for %v: %w", addr, err)
+		}
+
+		watchedScripts[string(pkScript)] = struct{}{}
+		s.watchedAddrs[addr.String()] = addr
+	}
+
+	s.log.InfoS(ctx, "Issued addresses paid ahead of the wallet",
+		slog.Int("height", int(height)),
+		slog.Int("addrs", len(claimed)),
+	)
+
+	return nil
 }
 
 // filterBlockTxs checks all transactions in the block against the

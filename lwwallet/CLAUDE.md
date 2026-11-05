@@ -61,6 +61,10 @@ base logic with the neutrino-backed `btcwbackend` sibling via the extracted
   Discovery instead derives each active key scope's receive/change scripts
   through btcwallet's own scoped key managers, probes `/scripthash/:h` under
   the configured gap limit, and takes the earliest confirmed height.
+- `addressLookahead` (`address_lookahead.go`) — Applies btcwallet's recovery
+  rule to each new block: a payment to an unissued address inside the recovery
+  window issues that address and those before it. Owned by
+  `EsploraChainService`, and absent when `RecoveryWindow` is zero.
 - `BoardingBackendAdapter` — Embeds `walletcore.BoardingBackendBase` for
   shared key derivation/script import; implements `wallet.BoardingBackend`
   and `wallet.OutputLeaser`. Queries Esplora directly for UTXOs (bypasses
@@ -133,6 +137,14 @@ base logic with the neutrino-backed `btcwbackend` sibling via the extracted
   own set for new blocks. `Rescan` checks only the outpoints it is given, so a
   spend of an output created earlier in the same rescan goes unnoticed; it
   leaves that to recovery, which any non-zero `RecoveryWindow` runs first.
+- btcwallet's recovery only covers blocks up to the tip it sees when it starts.
+  After that it watches only issued addresses and drops payments to any address
+  missing from its database, and its sync cursor never returns to that block.
+  So `deliverHeight` runs `addressLookahead` before it hands a block to
+  btcwallet, and refuses to advance if that fails. This covers only blocks
+  processed from then on: a wallet whose cursor already passed such a payment
+  has to be restored again to find it. It also means every block is fetched
+  whenever `RecoveryWindow` is non-zero, even with no watched addresses.
 - `FilterBlocks` and `Rescan` also trust successful script-history responses
   to be complete. Errors, truncated pagination, and block-identity conflicts
   fall back to full block scans, but an empty response is indistinguishable

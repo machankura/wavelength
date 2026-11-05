@@ -216,6 +216,14 @@ func New(cfg Config) (*Wallet, error) {
 	signing.Apply(&core, coinType)
 	btcw := core.BtcWallet
 
+	// With no recovery window the wallet has asked not to look past the
+	// addresses it has issued.
+	if cfg.RecoveryWindow > 0 {
+		chainSvc.lookahead = newAddressLookahead(
+			btcw.InternalWallet(), cfg.RecoveryWindow,
+		)
+	}
+
 	boardingBackend := NewBoardingBackendAdapter(
 		btcw, esplora, cfg.ChainParams, coinType, walletLog,
 	)
