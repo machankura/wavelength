@@ -124,11 +124,17 @@ func (m *Manifest) primarySlot(slot ManifestSlot, path []uint32) bool {
 		slices.Equal(slot.Origin.Path, path)
 }
 
+// OnChainOverridden reports whether the on-chain slot comes from somewhere
+// other than the primary root at its own path.
+func (m *Manifest) OnChainOverridden() bool {
+	return !m.primarySlot(m.OnChain, accountPath(86, 0, 0))
+}
+
 // Overrides returns the slots filled from somewhere other than the primary
 // root at their own path: "onchain" and family numbers.
 func (m *Manifest) Overrides(params *chaincfg.Params) []string {
 	var overridden []string
-	if !m.primarySlot(m.OnChain, accountPath(86, 0, 0)) {
+	if m.OnChainOverridden() {
 		overridden = append(overridden, "onchain")
 	}
 

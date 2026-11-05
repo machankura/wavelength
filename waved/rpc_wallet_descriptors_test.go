@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/btcsuite/btcd/btcutil/v2/hdkeychain"
 	"github.com/btcsuite/btcd/chaincfg/v2"
 	"github.com/btcsuite/btclog/v2"
 	"github.com/lightninglabs/wavelength/db"
@@ -64,6 +65,7 @@ func startDescriptorTestWallet(t *testing.T, esploraURL string,
 	w, err := lwwallet.New(lwwallet.Config{
 		Seed:           input.seed,
 		RootKey:        input.rootKey,
+		AccountKeys:    input.accountKeys,
 		Birthday:       input.birthday,
 		WalletPassword: []byte(testDescriptorPassword),
 		EsploraURL:     esploraURL,
@@ -228,4 +230,172 @@ func TestListWalletDescriptorsExportAndRoundTrip(t *testing.T) {
 	require.Equal(
 		t, public.GetDescriptors()[1], prepared.publicDescriptors[1],
 	)
+}
+
+// taprootOnlyTestAccountKeys returns root's account keys without a wpkh
+// account, which is what a wallet exported as tr() plus key families holds.
+func taprootOnlyTestAccountKeys(t *testing.T,
+	root *hdkeychain.ExtendedKey) *walletdesc.AccountKeys {
+
+	t.Helper()
+
+	params := &chaincfg.RegressionNetParams
+	keys, err := walletdesc.BtcwalletAccountKeys(root, params)
+	require.NoError(t, err)
+
+	var accounts []walletdesc.AccountKey
+	for _, acct := range keys.Accounts {
+		if acct.Purpose != walletdesc.ScriptWitnessPubKeyHash.Purpose() {
+			accounts = append(accounts, acct)
+		}
+	}
+	keys.Accounts = accounts
+
+	return keys
+}
+
+// TestListWalletDescriptorsWithoutBip84 checks a wallet with no wpkh account
+// exports only its tr descriptor, still accepts the seed it came from for
+// private export and bundles, and still refuses any other seed.
+func TestListWalletDescriptorsWithoutBip84(t *testing.T) {
+	t.Parallel()
+
+	mnemonic, root := compatibleTestMnemonic(t)
+	server := startDescriptorTestWallet(
+		t, newDescriptorTestEsplora(t).URL, walletCreateInput{
+			accountKeys: taprootOnlyTestAccountKeys(t, root),
+		},
+	)
+	ctx := t.Context()
+
+	public, err := server.ListWalletDescriptors(
+		ctx, &waverpc.ListWalletDescriptorsRequest{},
+	)
+	require.NoError(t, err)
+	require.Len(t, public.GetDescriptors(), 1)
+	require.True(
+		t, strings.HasPrefix(public.GetDescriptors()[0], "tr(tpub"),
+	)
+
+	// The placeholder that fills the BIP84 scope never shows up.
+	for _, text := range public.GetDescriptors() {
+		require.NotContains(t, text, "wpkh")
+	}
+
+	// The wallet's own seed authorizes private export and a bundle.
+	private, err := server.ListWalletDescriptors(
+		ctx, &waverpc.ListWalletDescriptorsRequest{
+			IncludePrivate: true, Mnemonic: mnemonic[:],
+		},
+	)
+	require.NoError(t, err)
+	wd, err := walletdesc.Parse(
+		private.GetDescriptors(), &chaincfg.RegressionNetParams,
+	)
+	require.NoError(t, err)
+	require.Equal(t, root.String(), wd.Root.String())
+
+	bundle, err := server.ExportWatchOnlyBundle(
+		ctx, &waverpc.ExportWatchOnlyBundleRequest{
+			Mnemonic: mnemonic[:],
+		},
+	)
+	require.NoError(t, err)
+	require.NotEmpty(t, bundle.GetBundle())
+
+	// Skipping the absent scope must not loosen the check on the rest.
+	otherMnemonic, err := GenerateSeed(nil)
+	require.NoError(t, err)
+	_, err = server.ListWalletDescriptors(
+		ctx, &waverpc.ListWalletDescriptorsRequest{
+			IncludePrivate: true, Mnemonic: otherMnemonic[:],
+		},
+	)
+	require.Equal(t, codes.InvalidArgument, status.Code(err))
+	require.ErrorContains(t, err, errWrongWalletSecret.Error())
+}
+
+// TestManifestOnChainOverrideRecordsNoOrigin checks a manifest whose on-chain
+// account is not at the standard path of its primary root records no key
+// origin. Export renders origins at the standard path, so recording one would
+// state a derivation path the key does not come from.
+func TestManifestOnChainOverrideRecordsNoOrigin(t *testing.T) {
+	t.Parallel()
+
+	params := &chaincfg.RegressionNetParams
+	_, root := compatibleTestMnemonic(t)
+	fp, err := walletdesc.Fingerprint(root)
+	require.NoError(t, err)
+
+	request := func(
+		keys *walletdesc.AccountKeys) *waverpc.InitWalletRequest {
+
+		manifest, err := walletdesc.FormatManifest(keys, params)
+		require.NoError(t, err)
+		auth, err := walletdesc.FormatAuthKeys(keys)
+		require.NoError(t, err)
+
+		return &waverpc.InitWalletRequest{
+			WatchOnlyManifest: manifest,
+			AuthKeys:          auth,
+			WalletPassword:    []byte(testDescriptorPassword),
+		}
+	}
+
+	// A manifest at the standard path keeps its origin.
+	keys, err := walletdesc.BtcwalletAccountKeys(root, params)
+	require.NoError(t, err)
+	standard, err := prepareWalletCreateInput(request(keys), "regtest")
+	require.NoError(t, err)
+	defer standard.zero()
+	require.False(t, standard.originUnknown)
+
+	// Move the on-chain account to m/86'/1'/0' of the same root.
+	path := []uint32{
+		hdkeychain.HardenedKeyStart + 86,
+		hdkeychain.HardenedKeyStart + 1,
+		hdkeychain.HardenedKeyStart,
+	}
+	moved := root
+	for _, step := range path {
+		moved, err = moved.Derive(step)
+		require.NoError(t, err)
+	}
+	for i, acct := range keys.Accounts {
+		if acct.Purpose == walletdesc.ScriptTaproot.Purpose() {
+			keys.Accounts[i].Key = moved
+			keys.Accounts[i].Origin = &walletdesc.KeyOrigin{
+				Fingerprint: fp, Path: path,
+			}
+		}
+	}
+	override, err := prepareWalletCreateInput(request(keys), "regtest")
+	require.NoError(t, err)
+	defer override.zero()
+	require.True(t, override.originUnknown)
+
+	// The fingerprint is still the manifest's, but export states no origin.
+	require.Equal(t, fp, override.rootFingerprint)
+	server := startDescriptorTestWallet(
+		t, newDescriptorTestEsplora(t).URL, walletCreateInput{
+			accountKeys: taprootOnlyTestAccountKeys(t, root),
+		},
+	)
+	ctx := t.Context()
+	server.recordCreatedKeyOrigin(ctx, override)
+	public, err := server.ListWalletDescriptors(
+		ctx, &waverpc.ListWalletDescriptorsRequest{},
+	)
+	require.NoError(t, err)
+	require.Empty(t, public.GetRootFingerprint())
+	require.NotContains(t, public.GetDescriptors()[0], "[")
+
+	// A standard manifest's origin is recorded and rendered.
+	server.recordCreatedKeyOrigin(ctx, standard)
+	public, err = server.ListWalletDescriptors(
+		ctx, &waverpc.ListWalletDescriptorsRequest{},
+	)
+	require.NoError(t, err)
+	require.Equal(t, FormatFingerprint(fp), public.GetRootFingerprint())
+	require.Contains(t, public.GetDescriptors()[0], FormatFingerprint(fp))
 }

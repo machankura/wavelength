@@ -170,7 +170,8 @@ type ListWalletDescriptorsRequest struct {
 	Descriptors    []string
 }
 
-// ListWalletDescriptorsResult carries the wallet's tr and wpkh descriptors.
+// ListWalletDescriptorsResult carries the wallet's tr descriptor and, when it
+// holds that account or private keys were requested, its wpkh one.
 // RootFingerprint is empty for a wallet whose fingerprint was never
 // recorded; its public descriptors then carry no key origin.
 type ListWalletDescriptorsResult struct {

@@ -20,6 +20,10 @@ type preparedWalletCreate struct {
 	source            db.WalletKeySource
 	manifestHash      string
 
+	// originUnknown is set when rootFingerprint is not where the on-chain
+	// account came from, so it must not be recorded as that key's origin.
+	originUnknown bool
+
 	// zero wipes the seed or master key behind input.
 	zero func()
 }
@@ -364,6 +368,7 @@ func prepareManifestCreate(req *waverpc.InitWalletRequest,
 		rootFingerprint: manifest.PrimaryFingerprint,
 		source:          db.WalletKeySourceWatchOnly,
 		manifestHash:    manifest.HashHex(),
+		originUnknown:   manifest.OnChainOverridden(),
 		zero:            auth.Zero,
 	}, nil
 }

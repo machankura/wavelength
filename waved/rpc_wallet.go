@@ -16,7 +16,6 @@ import (
 	"github.com/btcsuite/btcwallet/waddrmgr"
 	"github.com/lightninglabs/lndclient"
 	"github.com/lightninglabs/wavelength/btcwbackend"
-	"github.com/lightninglabs/wavelength/db"
 	"github.com/lightninglabs/wavelength/lib/keyfamily"
 	"github.com/lightninglabs/wavelength/lwwallet"
 	"github.com/lightninglabs/wavelength/swaprpc"
@@ -525,10 +524,7 @@ func (r *RPCServer) InitWallet(ctx context.Context,
 			// The retry goes through UnlockWallet, which never sees
 			// this request, so this is the last chance to record
 			// the origin for descriptor export.
-			r.recordWalletKeyOrigin(ctx, db.WalletKeyOrigin{
-				RootFingerprint: created.rootFingerprint,
-				Source:          created.source,
-			})
+			r.recordCreatedKeyOrigin(ctx, created)
 
 			return nil, status.Errorf(codes.Internal, "unable to "+
 				"start wallet: %v (the wallet database was "+
@@ -547,10 +543,7 @@ func (r *RPCServer) InitWallet(ctx context.Context,
 	// Record the master key fingerprint first, which btcwallet does not
 	// keep, so descriptor export can render key origins. A failure here
 	// only costs export its origins, so it does not fail the creation.
-	r.recordWalletKeyOrigin(ctx, db.WalletKeyOrigin{
-		RootFingerprint: created.rootFingerprint,
-		Source:          created.source,
-	})
+	r.recordCreatedKeyOrigin(ctx, created)
 
 	var recoveryResult *WalletRecoveryResult
 	if req.GetRecoverState() {

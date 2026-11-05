@@ -129,9 +129,13 @@ func publicWalletDescriptors(
 	})
 
 	for _, entry := range exportScopes {
+		account, ok := accounts[entry.scriptType]
+		if !ok {
+			continue
+		}
+
 		desc, err := walletdesc.NewAccountDescriptor(
-			entry.scriptType, accounts[entry.scriptType], fp, hasFP,
-			params,
+			entry.scriptType, account, fp, hasFP, params,
 		)
 		if err != nil {
 			return nil, status.Errorf(codes.Internal, "build %s "+
@@ -241,8 +245,8 @@ func rootFromExportRequest(mnemonic []string, seedPassphrase []byte,
 	return root, db.WalletKeySourceSeed, nil
 }
 
-// verifyWalletRoot checks root reproduces the open wallet's BIP86 and BIP84
-// account keys and its identity key.
+// verifyWalletRoot checks root reproduces the BIP86 and BIP84 account keys the
+// open wallet holds and its identity key. walletAccountKeys guarantees BIP86.
 func (r *RPCServer) verifyWalletRoot(ctx context.Context,
 	root *hdkeychain.ExtendedKey,
 	accounts map[walletdesc.ScriptType]*hdkeychain.ExtendedKey) error {
@@ -258,8 +262,11 @@ func (r *RPCServer) verifyWalletRoot(ctx context.Context,
 			return status.Errorf(codes.Internal, "%v", err)
 		}
 
-		want := accounts[public[i].ScriptType()]
-		if want == nil || want.String() != got.String() {
+		want, ok := accounts[public[i].ScriptType()]
+		if !ok {
+			continue
+		}
+		if want.String() != got.String() {
 			return status.Error(
 				codes.InvalidArgument,
 				errWrongWalletSecret.Error(),
@@ -287,7 +294,10 @@ func (r *RPCServer) verifyWalletRoot(ctx context.Context,
 }
 
 // walletAccountKeys reads the account-0 public keys of the scopes the
-// wallet exports, from whichever self-managed backend is running.
+// wallet exports, from whichever self-managed backend is running. A wallet
+// imported without a BIP84 account has none under that name, only a
+// placeholder whose key was discarded, so the result omits that scope. Every
+// wallet must hold BIP86.
 func (s *Server) walletAccountKeys() (
 	map[walletdesc.ScriptType]*hdkeychain.ExtendedKey, error) {
 
@@ -309,6 +319,11 @@ func (s *Server) walletAccountKeys() (
 		props, err := btcw.ListAccounts(
 			lnwallet.DefaultAccountName, &scope,
 		)
+		if waddrmgr.IsError(err, waddrmgr.ErrAccountNotFound) &&
+			scope != waddrmgr.KeyScopeBIP0086 {
+
+			continue
+		}
 		if err != nil {
 			return nil, fmt.Errorf("list %v accounts: %w", scope,
 				err)
@@ -346,6 +361,23 @@ func (r *RPCServer) walletKeyOriginStore() (*db.WalletKeyOriginStore, error) {
 	)
 
 	return dbStore.NewWalletKeyOriginStore(), nil
+}
+
+// recordCreatedKeyOrigin records the key origin of a wallet just created.
+// Descriptor export renders the origin as the fingerprint at the on-chain
+// account's standard path, so a wallet whose on-chain account came from
+// elsewhere records nothing and exports its keys with no origin.
+func (r *RPCServer) recordCreatedKeyOrigin(ctx context.Context,
+	created *preparedWalletCreate) {
+
+	if created.originUnknown {
+		return
+	}
+
+	r.recordWalletKeyOrigin(ctx, db.WalletKeyOrigin{
+		RootFingerprint: created.rootFingerprint,
+		Source:          created.source,
+	})
 }
 
 // recordWalletKeyOrigin persists the wallet key origin. A failure is logged
