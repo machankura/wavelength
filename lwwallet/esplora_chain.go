@@ -41,13 +41,20 @@ type EsploraChainService struct {
 	// in its handleChainNotifications goroutine.
 	notifications chan interface{}
 
-	// mu protects watchedAddrs and bestBlock.
+	// mu protects watchedAddrs, watchedOutpoints and bestBlock.
 	mu sync.Mutex
 
 	// watchedAddrs holds addresses registered via NotifyReceived.
 	// These are used during block processing to detect relevant
 	// transactions for RelevantTx notifications.
 	watchedAddrs map[string]btcaddr.Address
+
+	// watchedOutpoints holds the wallet outputs a new block may spend: the
+	// ones Rescan was given and those found paying watched addresses
+	// since. A spend that pays the wallet nothing is only recognisable by
+	// its input. Spent outputs stay in the set, so a spend a reorg puts
+	// back into a later block is still found.
+	watchedOutpoints map[wire.OutPoint]struct{}
 
 	// bestBlock caches the current chain tip, updated on each
 	// processed TipBlock event.
@@ -104,6 +111,7 @@ func NewEsploraChainService(esplora *EsploraClient, tipPoller *TipPoller,
 		log:                   logger,
 		notifications:         make(chan interface{}, 100),
 		watchedAddrs:          make(map[string]btcaddr.Address),
+		watchedOutpoints:      make(map[wire.OutPoint]struct{}),
 		maxGapFillPerTipEvent: defaultMaxGapFillPerTipEvent,
 		quit:                  make(chan struct{}),
 	}
@@ -304,6 +312,7 @@ func (s *EsploraChainService) FilterBlocks(req *chain.FilterBlocksRequest) (
 		}
 
 		addrScripts[string(pkScript)] = addressMatch{
+			addr:     addr,
 			scope:    scopedIdx.Scope,
 			index:    scopedIdx.Index,
 			external: true,
@@ -317,6 +326,7 @@ func (s *EsploraChainService) FilterBlocks(req *chain.FilterBlocksRequest) (
 		}
 
 		addrScripts[string(pkScript)] = addressMatch{
+			addr:     addr,
 			scope:    scopedIdx.Scope,
 			index:    scopedIdx.Index,
 			external: false,
@@ -635,8 +645,10 @@ func sortTxsByDependency(txs []*wire.MsgTx) ([]*wire.MsgTx, error) {
 
 // addressMatch pairs an address's key scope and index with whether
 // it is external or internal. This is used to populate the
-// FoundExternalAddrs / FoundInternalAddrs maps in the filter response.
+// FoundExternalAddrs / FoundInternalAddrs and FoundOutPoints maps in the
+// filter response.
 type addressMatch struct {
+	addr     btcaddr.Address
 	scope    waddrmgr.KeyScope
 	index    uint32
 	external bool
@@ -669,14 +681,39 @@ func (s *EsploraChainService) filterBlock(
 	for _, tx := range block.Transactions {
 		txMatched := false
 
-		// Check outputs against watched addresses.
-		for _, txOut := range tx.TxOut {
+		// Check inputs against watched outpoints, and against the
+		// outputs found earlier in this block, which a transaction can
+		// spend straight away.
+		for _, txIn := range tx.TxIn {
+			addr, ok := watchedOPs[txIn.PreviousOutPoint]
+			if !ok {
+				addr, ok = foundOutpoints[txIn.PreviousOutPoint]
+			}
+			if !ok {
+				continue
+			}
+
+			txMatched = true
+			foundOutpoints[txIn.PreviousOutPoint] = addr
+		}
+
+		// Check outputs against watched addresses. Each match is also
+		// reported as a found outpoint: btcwallet watches only what it
+		// is told about, and without this it could not recognise a
+		// later spend that pays nothing back to the wallet, leaving
+		// the output counted as unspent.
+		txHash := tx.TxHash()
+		for i, txOut := range tx.TxOut {
 			match, ok := addrScripts[string(txOut.PkScript)]
 			if !ok {
 				continue
 			}
 
 			txMatched = true
+			foundOutpoints[wire.OutPoint{
+				Hash:  txHash,
+				Index: uint32(i),
+			}] = match.addr
 
 			if match.external {
 				if foundExternal[match.scope] == nil {
@@ -695,17 +732,6 @@ func (s *EsploraChainService) filterBlock(
 				foundInternal[match.scope][match.index] =
 					struct{}{}
 			}
-		}
-
-		// Check inputs against watched outpoints.
-		for _, txIn := range tx.TxIn {
-			addr, ok := watchedOPs[txIn.PreviousOutPoint]
-			if !ok {
-				continue
-			}
-
-			txMatched = true
-			foundOutpoints[txIn.PreviousOutPoint] = addr
 		}
 
 		if txMatched {
@@ -785,6 +811,14 @@ func (s *EsploraChainService) Rescan(startHash *chainhash.Hash,
 	outpoints map[wire.OutPoint]btcaddr.Address) error {
 
 	ctx := s.requestContext()
+
+	// Keep the outpoints for new blocks too: the wallet may spend them,
+	// or see them spent elsewhere, at any time after this rescan.
+	s.mu.Lock()
+	for outpoint := range outpoints {
+		s.watchedOutpoints[outpoint] = struct{}{}
+	}
+	s.mu.Unlock()
 
 	// Build the pkScript lookup from addresses.
 	addrScripts := make(map[string]struct{})
@@ -920,6 +954,7 @@ func (s *EsploraChainService) Rescan(startHash *chainhash.Hash,
 			}
 
 			relevantTxs = append(relevantTxs, rec)
+			s.watchPaidOutputs(tx, addrScripts)
 		}
 
 		// Queue FilteredBlockConnected so btcwallet processes
@@ -1530,7 +1565,9 @@ func (s *EsploraChainService) deliverHeight(ctx context.Context,
 }
 
 // filterBlockTxs checks all transactions in the block against the
-// watched pkScripts and returns TxRecords for matching transactions.
+// watched pkScripts and outpoints, and returns TxRecords for matching
+// transactions. Block order lets a transaction match by spending an output
+// found earlier in the same block.
 func (s *EsploraChainService) filterBlockTxs(ctx context.Context,
 	block *wire.MsgBlock,
 	watchedScripts map[string]struct{},
@@ -1539,7 +1576,9 @@ func (s *EsploraChainService) filterBlockTxs(ctx context.Context,
 	var records []*wtxmgr.TxRecord
 
 	for _, tx := range block.Transactions {
-		if !s.txMatchesScripts(tx, watchedScripts) {
+		spendsWatched := s.spendsWatchedOutpoint(tx)
+		paysWatched := s.watchPaidOutputs(tx, watchedScripts)
+		if !spendsWatched && !paysWatched {
 			continue
 		}
 
@@ -1560,18 +1599,50 @@ func (s *EsploraChainService) filterBlockTxs(ctx context.Context,
 	return records
 }
 
-// txMatchesScripts checks whether any transaction output pays to one
-// of the watched pkScripts.
-func (s *EsploraChainService) txMatchesScripts(tx *wire.MsgTx,
-	watchedScripts map[string]struct{}) bool {
+// spendsWatchedOutpoint reports whether the transaction spends an output the
+// wallet is watching.
+func (s *EsploraChainService) spendsWatchedOutpoint(tx *wire.MsgTx) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 
-	for _, txOut := range tx.TxOut {
-		if _, ok := watchedScripts[string(txOut.PkScript)]; ok {
+	for _, txIn := range tx.TxIn {
+		_, ok := s.watchedOutpoints[txIn.PreviousOutPoint]
+		if ok {
 			return true
 		}
 	}
 
 	return false
+}
+
+// watchPaidOutputs starts watching each transaction output that pays one of
+// the given pkScripts, and reports whether there were any.
+func (s *EsploraChainService) watchPaidOutputs(tx *wire.MsgTx,
+	scripts map[string]struct{}) bool {
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	var (
+		txHash chainhash.Hash
+		paid   bool
+	)
+	for i, txOut := range tx.TxOut {
+		if _, ok := scripts[string(txOut.PkScript)]; !ok {
+			continue
+		}
+
+		if !paid {
+			txHash = tx.TxHash()
+			paid = true
+		}
+		s.watchedOutpoints[wire.OutPoint{
+			Hash:  txHash,
+			Index: uint32(i),
+		}] = struct{}{}
+	}
+
+	return paid
 }
 
 // Compile-time check that EsploraChainService implements

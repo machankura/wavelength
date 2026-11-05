@@ -161,7 +161,35 @@ func (f *fakeIndex) addBlock(t *testing.T, height int32,
 	}
 }
 
+// addGenesis records the network's real genesis block at height 0, which a
+// wallet compares its starting point against.
+func (f *fakeIndex) addGenesis(params *chaincfg.Params) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	f.blocks[params.GenesisHash.String()] = params.GenesisBlock
+	f.heights[0] = params.GenesisHash.String()
+}
+
+// serve starts the fake and returns a chain service wired directly to it.
 func (f *fakeIndex) serve(t *testing.T) *EsploraChainService {
+	t.Helper()
+
+	esplora := NewEsploraClient(f.start(t), btclog.Disabled)
+
+	return &EsploraChainService{
+		esplora:          esplora,
+		log:              btclog.Disabled,
+		notifications:    make(chan interface{}, 100),
+		watchedAddrs:     make(map[string]btcaddr.Address),
+		watchedOutpoints: make(map[wire.OutPoint]struct{}),
+		runCtx:           t.Context(),
+		quit:             make(chan struct{}),
+	}
+}
+
+// start runs the fake's HTTP server and returns its URL.
+func (f *fakeIndex) start(t *testing.T) string {
 	t.Helper()
 
 	srv := httptest.NewServer(http.HandlerFunc(
@@ -197,6 +225,17 @@ func (f *fakeIndex) serve(t *testing.T) *EsploraChainService {
 				}
 				require.NoError(
 					t, json.NewEncoder(w).Encode(refs),
+				)
+
+			case strings.HasPrefix(path, "/scripthash/"):
+				hash := strings.TrimPrefix(path, "/scripthash/")
+				stats := esploraScriptStats{
+					ChainStats: esploraScriptStatSet{
+						TxCount: len(f.history[hash]),
+					},
+				}
+				require.NoError(
+					t, json.NewEncoder(w).Encode(stats),
 				)
 
 			case strings.HasPrefix(path, "/tx/") &&
@@ -266,6 +305,25 @@ func (f *fakeIndex) serve(t *testing.T) *EsploraChainService {
 				_, err := w.Write(buf.Bytes())
 				require.NoError(t, err)
 
+			case strings.HasPrefix(path, "/block/") &&
+				strings.HasSuffix(path, "/header"):
+
+				f.blockFetches++
+				hash := strings.TrimSuffix(
+					strings.TrimPrefix(path, "/block/"),
+					"/header",
+				)
+				block, ok := f.blocks[hash]
+				if !ok {
+					w.WriteHeader(http.StatusNotFound)
+
+					return
+				}
+				var buf bytes.Buffer
+				require.NoError(t, block.Header.Serialize(&buf))
+				_, err := fmt.Fprintf(w, "%x", buf.Bytes())
+				require.NoError(t, err)
+
 			case strings.HasPrefix(path, "/block/"):
 				f.blockFetches++
 				hash := strings.TrimPrefix(path, "/block/")
@@ -306,15 +364,7 @@ func (f *fakeIndex) serve(t *testing.T) *EsploraChainService {
 	))
 	t.Cleanup(srv.Close)
 
-	esplora := NewEsploraClient(srv.URL, btclog.Disabled)
-
-	return &EsploraChainService{
-		esplora:       esplora,
-		log:           btclog.Disabled,
-		notifications: make(chan interface{}, 100),
-		runCtx:        t.Context(),
-		quit:          make(chan struct{}),
-	}
+	return srv.URL
 }
 
 // testScript derives a deterministic p2wkh script and its address.
@@ -663,6 +713,134 @@ func TestFilterBlocksFindsWatchedOutpointSpend(t *testing.T) {
 			"address must not be reported as a discovered address",
 	)
 	require.Zero(t, idx.blockFetches)
+}
+
+// TestFilterBlocksReportsFoundOutputs verifies that an output paying a derived
+// address is reported as a found outpoint. btcwallet's recovery watches only
+// the outpoints it is told about, so an output left out here is one whose
+// later spend goes unnoticed. A transaction spending such an output in the
+// same block is relevant even though it pays the wallet nothing.
+func TestFilterBlocksReportsFoundOutputs(t *testing.T) {
+	t.Parallel()
+
+	idx := newFakeIndex()
+	script, addr := testScript(t, 0x71)
+	strangerScript, _ := testScript(t, 0x72)
+
+	fund := payTo(script, 40_000)
+	spend := wire.NewMsgTx(2)
+	spend.AddTxIn(&wire.TxIn{
+		PreviousOutPoint: wire.OutPoint{Hash: fund.TxHash(), Index: 0},
+	})
+	spend.AddTxOut(wire.NewTxOut(30_000, strangerScript))
+
+	meta := blockMetaAt(610, 0xe7)
+	idx.addTx(t, fund, 610, meta.Hash)
+	idx.addTx(t, spend, 610, meta.Hash, script)
+
+	svc := idx.serve(t)
+	scoped := waddrmgr.ScopedIndex{
+		Scope: waddrmgr.KeyScopeBIP0086,
+		Index: 3,
+	}
+	resp, err := svc.FilterBlocks(&chain.FilterBlocksRequest{
+		Blocks: []wtxmgr.BlockMeta{meta},
+		ExternalAddrs: map[waddrmgr.ScopedIndex]btcaddr.Address{
+			scoped: addr,
+		},
+		InternalAddrs: map[waddrmgr.ScopedIndex]btcaddr.Address{},
+	})
+	require.NoError(t, err)
+	require.NotNil(t, resp)
+
+	found := wire.OutPoint{Hash: fund.TxHash(), Index: 0}
+	require.Equal(t, addr, resp.FoundOutPoints[found])
+	require.Len(t, resp.RelevantTxns, 2)
+	require.Equal(t, fund.TxHash(), resp.RelevantTxns[0].TxHash())
+	require.Equal(t, spend.TxHash(), resp.RelevantTxns[1].TxHash())
+}
+
+// TestNewBlocksReportWatchedOutpointSpends verifies that a new block's spend
+// of a wallet output is reported even when it pays the wallet nothing, for an
+// output handed over by Rescan and for one first seen in a new block.
+func TestNewBlocksReportWatchedOutpointSpends(t *testing.T) {
+	t.Parallel()
+
+	idx := newFakeIndex()
+	script, addr := testScript(t, 0x73)
+	strangerScript, _ := testScript(t, 0x74)
+
+	spendOf := func(hash chainhash.Hash) *wire.MsgTx {
+		tx := wire.NewMsgTx(2)
+		tx.AddTxIn(&wire.TxIn{
+			PreviousOutPoint: wire.OutPoint{Hash: hash, Index: 0},
+		})
+		tx.AddTxOut(wire.NewTxOut(10_000, strangerScript))
+
+		return tx
+	}
+
+	// The rescan is handed one unspent output, as the wallet does on
+	// every sync, and has nothing of its own to find.
+	known := wire.OutPoint{Hash: chainhash.Hash{0x01}, Index: 0}
+	start := idx.addBlock(t, 800)
+	svc := idx.serve(t)
+	require.NoError(
+		t,
+		svc.Rescan(
+			&start.Hash, nil, map[wire.OutPoint]btcaddr.Address{
+				known: addr,
+			},
+		),
+	)
+	requireNotification[chain.FilteredBlockConnected](t, svc.notifications)
+	requireNotification[chain.BlockConnected](t, svc.notifications)
+
+	// deliver feeds one new block through the live path and returns the
+	// transactions it reported as relevant.
+	scripts := map[string]struct{}{string(script): {}}
+	deliver := func(height int32, txs ...*wire.MsgTx) []*wtxmgr.TxRecord {
+		meta := idx.addBlock(t, height, txs...)
+		require.True(
+			t,
+			svc.deliverHeight(
+				t.Context(), height, meta.Hash, meta.Time,
+				scripts,
+			),
+		)
+
+		filtered := requireNotification[chain.FilteredBlockConnected](
+			t, svc.notifications,
+		)
+		requireNotification[chain.BlockConnected](t, svc.notifications)
+
+		return filtered.RelevantTxs
+	}
+
+	// A spend of the rescan's output is relevant.
+	spendKnown := spendOf(known.Hash)
+	relevant := deliver(801, spendKnown)
+	require.Len(t, relevant, 1)
+	require.Equal(t, spendKnown.TxHash(), relevant[0].Hash)
+
+	// So is a spend of an output first seen in a new block.
+	fund := payTo(script, 40_000)
+	relevant = deliver(802, fund)
+	require.Len(t, relevant, 1)
+	require.Equal(t, fund.TxHash(), relevant[0].Hash)
+
+	spendFound := spendOf(fund.TxHash())
+	relevant = deliver(803, spendFound)
+	require.Len(t, relevant, 1)
+	require.Equal(t, spendFound.TxHash(), relevant[0].Hash)
+
+	// Including within one block, where only block order links the two.
+	sameBlockFund := payTo(script, 41_000)
+	sameBlockSpend := spendOf(sameBlockFund.TxHash())
+	require.Len(t, deliver(804, sameBlockFund, sameBlockSpend), 2)
+
+	// A transaction touching nothing of the wallet's stays out.
+	require.Empty(t, deliver(805, spendOf(chainhash.Hash{0x02})))
 }
 
 // TestFilterBlocksPagesEntireBoundaryHeight verifies that pagination cannot

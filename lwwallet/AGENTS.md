@@ -126,6 +126,13 @@ base logic with the neutrino-backed `btcwbackend` sibling via the extracted
   partial history is indistinguishable from an unused script. A restore in
   that window stamps above its own funds permanently, since the stamp is
   written verified. Point `EsploraURL` at an endpoint you control.
+- A spend that pays the wallet nothing can only be recognised by its input,
+  so the wallet must be told which outputs are its own. `FilterBlocks` reports
+  every output paying a requested address in `FoundOutPoints`, which btcwallet's
+  recovery adds to the outpoints it watches, and `EsploraChainService` keeps its
+  own set for new blocks. `Rescan` checks only the outpoints it is given, so a
+  spend of an output created earlier in the same rescan goes unnoticed; it
+  leaves that to recovery, which any non-zero `RecoveryWindow` runs first.
 - `FilterBlocks` and `Rescan` also trust successful script-history responses
   to be complete. Errors, truncated pagination, and block-identity conflicts
   fall back to full block scans, but an empty response is indistinguishable
