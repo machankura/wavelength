@@ -408,13 +408,26 @@ func (w *Wallet) FinalizePsbtDirect(packet *psbt.Packet) error {
 // internal poll cadence rather than firing one extra HTTP request
 // per call (which on a hot ListUnspentWitness path could compound
 // against an already rate-limited Esplora endpoint).
+//
+// btcwallet moves its in-memory sync height inside the write transaction
+// that stores the block's transactions, before that transaction commits,
+// so reaching the tip does not yet mean those transactions can be read.
+// The database has one writer at a time, so opening a write transaction
+// waits for that commit. It is rolled back, so nothing is written.
 func (w *Wallet) WaitForSync(ctx context.Context) error {
 	tipHeight, _, _ := w.tipPoller.BestBlock()
 
 	for {
 		syncedTo := w.BtcWallet.InternalWallet().SyncedTo()
 		if syncedTo.Height >= tipHeight {
-			return nil
+			db := w.BtcWallet.InternalWallet().Database()
+			tx, err := db.BeginReadWriteTx()
+			if err != nil {
+				return fmt.Errorf("wait for wallet commit: %w",
+					err)
+			}
+
+			return tx.Rollback()
 		}
 
 		select {
