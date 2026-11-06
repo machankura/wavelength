@@ -5,6 +5,7 @@ package wavewalletdk
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -152,11 +153,36 @@ func TestHostedBridge(t *testing.T) {
 			AmountSatHint: sat,
 		})
 	})
+	serve("/receive", func(r *http.Request) (any, error) {
+		sat, err := strconv.ParseUint(r.URL.Query().Get("sat"), 10, 64)
+		if err != nil {
+			return nil, err
+		}
+
+		return client.Receive(r.Context(), ReceiveRequest{
+			AmountSat: sat, Memo: "a group's first receive",
+		})
+	})
 	serve("/vtxos", func(r *http.Request) (any, error) {
 		return client.List(r.Context(), ListRequest{View: ListViewVTXOs})
 	})
 	serve("/activity", func(r *http.Request) (any, error) {
 		return client.List(r.Context(), ListRequest{})
+	})
+	serve("/pay", func(r *http.Request) (any, error) {
+		prepared, err := client.PrepareSend(
+			r.Context(), PrepareSendRequest{
+				Invoice:   r.URL.Query().Get("invoice"),
+				MaxFeeSat: 3_000,
+			},
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		return client.SendPrepared(r.Context(), SendPreparedRequest{
+			SendIntentID: prepared.SendIntentID,
+		})
 	})
 	serve("/exit", func(r *http.Request) (any, error) {
 		return client.Exit(r.Context(), ExitRequest{
@@ -210,6 +236,127 @@ func TestHostedBridge(t *testing.T) {
 		"manifest_hash": opened.ManifestHash,
 		"identity":      opened.IdentityPubKey,
 		"seconds":       time.Since(began).Seconds(),
+	})
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(
+		filepath.Join(dir, "ready.json"), ready, 0o600,
+	))
+
+	select {
+	case <-stop:
+	case err := <-client.Wait():
+		t.Fatalf("the daemon stopped: %v", err)
+	}
+}
+
+// TestBridgePayer runs a plain signet wallet with a seed of its own, to pay a
+// Lightning invoice to a wallet under test. It is a harness too, and takes real
+// coins, so whoever drives it asks it to leave when it has done.
+func TestBridgePayer(t *testing.T) {
+	dir := os.Getenv("WAVELENGTH_BRIDGE_PAYER_DIR")
+	if dir == "" {
+		t.Skip("set WAVELENGTH_BRIDGE_PAYER_DIR to run against signet")
+	}
+
+	seedFile := filepath.Join(dir, "seed")
+	seed, err := os.ReadFile(seedFile)
+	if err != nil {
+		seed = make([]byte, 16)
+		_, err = rand.Read(seed)
+		require.NoError(t, err)
+		require.NoError(t, os.WriteFile(seedFile, seed, 0o600))
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	client, _, err := StartExternalSeedWallet(
+		ctx, Config{
+			DataDir:    filepath.Join(dir, "daemon"),
+			Network:    "signet",
+			DebugLevel: "info",
+		}, ExternalSeedWalletRequest{SeedEntropy: seed},
+	)
+	require.NoError(t, err)
+	defer func() { _ = client.Close() }()
+
+	stop := make(chan struct{})
+	mux := http.NewServeMux()
+	serve := func(path string, do func(*http.Request) (any, error)) {
+		mux.HandleFunc(path, func(w http.ResponseWriter, r *http.Request) {
+			result, err := do(r)
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusBadGateway)
+
+				return
+			}
+			_ = json.NewEncoder(w).Encode(result)
+		})
+	}
+	serve("/balance", func(r *http.Request) (any, error) {
+		return client.Balance(r.Context())
+	})
+	serve("/deposit", func(r *http.Request) (any, error) {
+		sat, err := strconv.ParseUint(r.URL.Query().Get("sat"), 10, 64)
+		if err != nil {
+			return nil, err
+		}
+
+		return client.Deposit(r.Context(), DepositRequest{
+			AmountSatHint: sat,
+		})
+	})
+	serve("/vtxos", func(r *http.Request) (any, error) {
+		return client.List(r.Context(), ListRequest{View: ListViewVTXOs})
+	})
+	serve("/activity", func(r *http.Request) (any, error) {
+		return client.List(r.Context(), ListRequest{})
+	})
+	serve("/receive", func(r *http.Request) (any, error) {
+		sat, err := strconv.ParseUint(r.URL.Query().Get("sat"), 10, 64)
+		if err != nil {
+			return nil, err
+		}
+
+		return client.Receive(r.Context(), ReceiveRequest{
+			AmountSat: sat, Memo: "paid by a group",
+		})
+	})
+	serve("/pay", func(r *http.Request) (any, error) {
+		prepared, err := client.PrepareSend(
+			r.Context(), PrepareSendRequest{
+				Invoice:   r.URL.Query().Get("invoice"),
+				MaxFeeSat: 3_000,
+			},
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		return client.SendPrepared(r.Context(), SendPreparedRequest{
+			SendIntentID: prepared.SendIntentID,
+		})
+	})
+	serve("/exit", func(r *http.Request) (any, error) {
+		return client.Exit(r.Context(), ExitRequest{
+			Outpoint:    r.URL.Query().Get("outpoint"),
+			Destination: r.URL.Query().Get("destination"),
+		})
+	})
+	serve("/stop", func(*http.Request) (any, error) {
+		close(stop)
+
+		return "stopping", nil
+	})
+
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	server := &http.Server{Handler: mux, ReadHeaderTimeout: 10 * time.Second}
+	go func() { _ = server.Serve(listener) }()
+	defer func() { _ = server.Close() }()
+
+	ready, err := json.Marshal(map[string]any{
+		"port": listener.Addr().(*net.TCPAddr).Port,
 	})
 	require.NoError(t, err)
 	require.NoError(t, os.WriteFile(
