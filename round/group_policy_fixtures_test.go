@@ -346,16 +346,27 @@ func TestGroupPolicyFixtures(t *testing.T) {
 
 	intents := Intents{
 		VTXOs: []types.VTXORequest{{
-			Amount:   ownVTXO.Amount,
-			PkScript: ownVTXO.PkScript,
+			Amount: ownVTXO.Amount,
 		}},
+		// A leave pays what was asked for less the server's fee.
 		Leaves: []*types.LeaveRequest{{
-			Output: commitment.TxOut[2],
+			Output: &wire.TxOut{
+				Value:    commitment.TxOut[2].Value + 313,
+				PkScript: commitment.TxOut[2].PkScript,
+			},
 		}},
+		QuotedLeaveAmounts: []int64{commitment.TxOut[2].Value},
 	}
 	intents.VTXOs[0].SigningKey.PubKey = treeKey
 	intents.VTXOs[0].OwnerKey.PubKey = owner
 	intents.VTXOs[0].PolicyTemplate = ownVTXO.PolicyTemplate
+
+	// The round that made the VTXO has already noted its transaction, and a
+	// real forfeit has to find this round's note instead of that one.
+	signctx.Record(
+		signctx.KindRound, "the round that made it",
+		[][32]byte{spent.Hash}, map[string]any{"forfeits": nil},
+	)
 
 	recordSigningNote(
 		RoundID{}, commitmentPacket, sweepKey, sweepDelay, operator,

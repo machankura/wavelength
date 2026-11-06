@@ -326,23 +326,31 @@ func recordSigningNote(roundID RoundID, commitment *psbt.Packet,
 	}
 
 	for i, req := range intents.VTXOs {
+		// A real request carries a policy template and no script.
+		script, err := req.EffectivePkScript()
+		if err != nil {
+			return
+		}
 		noted.VTXOs = append(noted.VTXOs, notedVTXO{
 			SigningKey: compressedHex(req.SigningKey.PubKey),
 			OwnerKey:   compressedHex(req.OwnerKey.PubKey),
 			Amount:     vtxoAmount(i, req),
-			PkScript:   hex.EncodeToString(req.PkScript),
+			PkScript:   hex.EncodeToString(script),
 			PolicyTemplate: hex.EncodeToString(
 				req.PolicyTemplate,
 			),
 		})
 	}
 
-	for _, leave := range intents.Leaves {
+	for i, leave := range intents.Leaves {
 		if leave == nil || leave.Output == nil {
 			return
 		}
+
+		// What the commitment pays, which is what was asked for less
+		// the server's fee.
 		noted.Leaves = append(noted.Leaves, notedOutput{
-			Value:    leave.Output.Value,
+			Value:    intents.LeaveAmount(i),
 			PkScript: hex.EncodeToString(leave.Output.PkScript),
 		})
 	}
@@ -357,7 +365,10 @@ func recordSigningNote(roundID RoundID, commitment *psbt.Packet,
 		if !ok {
 			return
 		}
-		keys = append(keys, info.ConnectorOutpoint.Hash)
+		// The VTXO's transaction too: a forfeit spends it first, and it
+		// is in the note of the round that made it, which says nothing
+		// about giving it up.
+		keys = append(keys, outpoint.Hash, info.ConnectorOutpoint.Hash)
 		noted.Forfeits = append(noted.Forfeits, notedForfeit{
 			VTXOOutpoint:      outpoint.String(),
 			VTXOAmount:        int64(info.VTXOAmount),
