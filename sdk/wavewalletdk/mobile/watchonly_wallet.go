@@ -40,16 +40,51 @@ type watchOnlyWalletStartRequest struct {
 // time, a successful response means wallet-dependent actors and mailbox
 // ingress are online, and any failure resets the lifecycle to stopped.
 func StartWatchOnlyWallet(reqJSON []byte) ([]byte, error) {
+	return startWatchOnlyWallet(reqJSON, nil)
+}
+
+// SignerHost answers a daemon's signing requests from the host application:
+// see callbacksigner.Host, whose Request and Response are the JSON it handles.
+type SignerHost interface {
+	// Handle answers one request. An error refuses it.
+	Handle(request []byte) ([]byte, error)
+}
+
+// StartWatchOnlyWalletWithHost is StartWatchOnlyWallet with the signer in this
+// process: the nested config names no remote signer, and host answers every
+// signature instead. remote_signer_request_timeout_seconds still bounds how
+// long the daemon waits for each answer.
+func StartWatchOnlyWalletWithHost(reqJSON []byte, host SignerHost) ([]byte,
+	error) {
+
+	if host == nil {
+		return nil, errors.New("a signer host is required")
+	}
+
+	return startWatchOnlyWallet(reqJSON, host)
+}
+
+// startWatchOnlyWallet boots a watch-only wallet, with host when it has one.
+func startWatchOnlyWallet(reqJSON []byte, host SignerHost) ([]byte, error) {
 	var result *wavewalletdk.WatchOnlyWalletOpenResult
 	err := startEmbedded(func(startCtx, operationCtx context.Context) (
 		*wavewalletdk.Client, error) {
 
-		cfg, req, err := parseWatchOnlyWalletStartRequest(reqJSON)
+		cfg, req, err := parseWatchOnlyWalletStartRequest(
+			reqJSON, host != nil,
+		)
 		if err != nil {
 			return nil, fmt.Errorf("parse watch-only wallet "+
 				"request: %w", err)
 		}
 		defer clear(req.WalletPassword)
+
+		if host != nil {
+			cfg.RemoteSigner = &wavewalletdk.RemoteSignerConfig{
+				Host:           host,
+				RequestTimeout: hostRequestTimeout(reqJSON),
+			}
+		}
 
 		client, openResult, err :=
 			wavewalletdk.StartWatchOnlyWalletWithContexts(
@@ -74,8 +109,8 @@ func StartWatchOnlyWallet(reqJSON []byte) ([]byte, error) {
 
 // parseWatchOnlyWalletStartRequest separates the final startup config from
 // the watch-only inputs. The SDK validates the inputs themselves.
-func parseWatchOnlyWalletStartRequest(reqJSON []byte) (wavewalletdk.Config,
-	wavewalletdk.WatchOnlyWalletRequest, error) {
+func parseWatchOnlyWalletStartRequest(reqJSON []byte, hosted bool) (
+	wavewalletdk.Config, wavewalletdk.WatchOnlyWalletRequest, error) {
 
 	var envelope watchOnlyWalletStartRequest
 	if err := json.Unmarshal(reqJSON, &envelope); err != nil {
@@ -104,7 +139,7 @@ func parseWatchOnlyWalletStartRequest(reqJSON []byte) (wavewalletdk.Config,
 			errors.New("config.data_dir must select the final " +
 				"wallet directory")
 
-	case mobileCfg.RemoteSignerRPCHost == "":
+	case mobileCfg.RemoteSignerRPCHost == "" && !hosted:
 		return wavewalletdk.Config{},
 			wavewalletdk.WatchOnlyWalletRequest{},
 			errors.New("config.remote_signer_rpc_host is " +
@@ -137,4 +172,20 @@ func parseWatchOnlyWalletStartRequest(reqJSON []byte) (wavewalletdk.Config,
 	}
 
 	return cfg, req, nil
+}
+
+// hostRequestTimeout reads how long a hosted signer may take over one request.
+// The request has already been parsed, so a value that does not read as one
+// selects the daemon's default.
+func hostRequestTimeout(reqJSON []byte) time.Duration {
+	var envelope struct {
+		Config struct {
+			Seconds int64 `json:"remote_signer_request_timeout_seconds"`
+		} `json:"config"`
+	}
+	if err := json.Unmarshal(reqJSON, &envelope); err != nil {
+		return 0
+	}
+
+	return time.Duration(envelope.Config.Seconds) * time.Second
 }

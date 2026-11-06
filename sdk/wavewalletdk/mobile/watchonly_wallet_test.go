@@ -28,7 +28,7 @@ func TestParseWatchOnlyWalletStartRequest(t *testing.T) {
 		"wallet_password": "cGFzc3dvcmQ=",
 		"birthday_unix": 1700000000,
 		"recover_state": true
-	}`))
+	}`), false)
 	require.NoError(t, err)
 	require.NotNil(t, cfg.RemoteSigner)
 	require.Equal(t, "10.0.0.2:10019", cfg.RemoteSigner.RPCHost)
@@ -73,7 +73,7 @@ func TestParseWatchOnlyWalletStartRequestRejectsInvalid(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			_, _, err := parseWatchOnlyWalletStartRequest(
-				[]byte(test.request),
+				[]byte(test.request), false,
 			)
 			require.Error(t, err)
 		})
@@ -90,7 +90,30 @@ func TestStartWatchOnlyWalletRejectsBadRequestAndResets(t *testing.T) {
 		},
 		"bundle": "junk",
 		"wallet_password": "cHc="
-	}`))
+	}`), false)
 	require.Error(t, err)
 	require.False(t, IsRunning())
+}
+
+// TestParseWatchOnlyWalletHosted proves a wallet with its signer in process
+// names no remote signer, and that a timeout still reaches the daemon.
+func TestParseWatchOnlyWalletHosted(t *testing.T) {
+	request := []byte(`{
+		"config": {
+			"data_dir": "/tmp/wavelength-wallet",
+			"network": "regtest",
+			"wallet_type": "lwwallet",
+			"remote_signer_request_timeout_seconds": 90
+		},
+		"manifest": "{}",
+		"auth_keys": "{}",
+		"wallet_password": "cGFzc3dvcmQ="
+	}`)
+
+	_, _, err := parseWatchOnlyWalletStartRequest(request, false)
+	require.Error(t, err, "without a host the signer has to be named")
+
+	_, _, err = parseWatchOnlyWalletStartRequest(request, true)
+	require.NoError(t, err)
+	require.Equal(t, 90*time.Second, hostRequestTimeout(request))
 }

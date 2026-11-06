@@ -15,6 +15,7 @@ import (
 	"github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
 	"github.com/lightninglabs/wavelength/baselib/actor"
 	"github.com/lightninglabs/wavelength/btcwbackend"
+	"github.com/lightninglabs/wavelength/callbacksigner"
 	"github.com/lightninglabs/wavelength/chainbackends"
 	"github.com/lightninglabs/wavelength/credit"
 	"github.com/lightninglabs/wavelength/db"
@@ -1257,6 +1258,12 @@ type RemoteSignerConfig struct {
 	// stay empty. Timeout then bounds how long a start waits for the
 	// signer to connect.
 	AllowInbound bool `mapstructure:"allowinbound"`
+
+	// Host answers every signature from inside this process, for a wallet
+	// whose keys a threshold group holds. It cannot come from a config
+	// file. With it, vHTLCs are keyed from a fund family instead of the
+	// identity, and credit is closed: see swapKeyDesc.
+	Host callbacksigner.Host `mapstructure:"-"`
 }
 
 // walletcoreConfig returns the signer config for the wallet backends, or
@@ -1280,6 +1287,7 @@ func (c RemoteSignerConfig) walletcoreConfig(
 	if c.AllowInbound {
 		cfg.Inbound = inbound
 	}
+	cfg.Host = c.Host
 
 	return cfg
 }

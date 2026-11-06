@@ -4,11 +4,16 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"fmt"
+	"github.com/lightninglabs/wavelength/callbacksigner"
+	"github.com/lightninglabs/wavelength/lib/keyfamily"
 	"slices"
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr/musig2"
@@ -402,4 +407,93 @@ func TestSplitSigning(t *testing.T) {
 		cfg, nil, nil, nil, newRemote(), cache,
 	)
 	require.ErrorIs(t, err, walletcore.ErrBundleOutdated)
+}
+
+// treeKeyHost is a callback signer's host that serves tree keys and records
+// what it was asked.
+type treeKeyHost struct {
+	mu    sync.Mutex
+	kinds []string
+	key   *btcec.PublicKey
+}
+
+// Handle implements callbacksigner.Host.
+func (h *treeKeyHost) Handle(raw []byte) ([]byte, error) {
+	var req callbacksigner.Request
+	if err := json.Unmarshal(raw, &req); err != nil {
+		return nil, err
+	}
+
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.kinds = append(h.kinds, req.Kind)
+
+	return json.Marshal(&callbacksigner.Response{
+		Index:  req.Index + 11,
+		PubKey: hex.EncodeToString(h.key.SerializeCompressed()),
+	})
+}
+
+// TestHostedKeyRing proves a wallet whose signer is its host opens without
+// asking for any signature, and gets its tree keys from the host while every
+// other family still derives from the wallet's own accounts.
+func TestHostedKeyRing(t *testing.T) {
+	t.Parallel()
+
+	params := &chaincfg.RegressionNetParams
+	keys := seedAccountKeys(t, params, testSeed())
+	defer keys.Zero()
+
+	_, minimal, err := walletdesc.ParseBundle(
+		minimalBundleText(t, keys), params,
+	)
+	require.NoError(t, err)
+	defer minimal.Zero()
+
+	treeKey, err := btcec.NewPrivateKey()
+	require.NoError(t, err)
+	host := &treeKeyHost{key: treeKey.PubKey()}
+
+	conn := callbacksigner.New(host, time.Second)
+	signing, err := walletcore.OpenWithSigner(
+		watchOnlyConfig(params, t.TempDir(), watchOnlyPassword), nil,
+		minimal, nil, conn, blockcache.NewBlockCache(10),
+	)
+	require.NoError(t, err)
+	defer signing.Conn.Stop()
+	ring := signing.KeyRing
+
+	wallet := &walletcore.Wallet{
+		RemoteSigner: signing.Conn,
+		KeyRing:      ring,
+		BtcWallet:    signing.BtcWallet,
+		ChainParams:  params,
+	}
+	require.NoError(t, wallet.VerifyRemoteSigner())
+	require.Empty(t, host.kinds, "opening asks for no signature")
+
+	desc, err := ring.DeriveNextKey(keyfamily.VTXOSigning)
+	require.NoError(t, err)
+	require.Equal(t, keyfamily.VTXOSigning, desc.Family)
+	require.Equal(t, uint32(11), desc.Index)
+	require.True(t, desc.PubKey.IsEqual(treeKey.PubKey()))
+
+	desc, err = ring.DeriveKey(keychain.KeyLocator{
+		Family: keyfamily.VTXOSigning, Index: 4,
+	})
+	require.NoError(t, err)
+	require.Equal(t, uint32(4), desc.Index)
+
+	require.Equal(
+		t, []string{
+			callbacksigner.KindNextTreeKey, callbacksigner.KindTreeKey,
+		},
+		host.kinds,
+	)
+
+	owner, err := ring.DeriveKey(keychain.KeyLocator{
+		Family: keyfamily.VTXOOwner,
+	})
+	require.NoError(t, err)
+	require.False(t, owner.PubKey.IsEqual(treeKey.PubKey()))
 }

@@ -10,6 +10,7 @@ import (
 	"github.com/btcsuite/btcd/chaincfg/v2"
 	"github.com/btcsuite/btcd/chainhash/v2"
 	"github.com/lightninglabs/wavelength/accountsigner"
+	"github.com/lightninglabs/wavelength/callbacksigner"
 	"github.com/lightninglabs/wavelength/lib/keyfamily"
 	"github.com/lightninglabs/wavelength/walletdesc"
 	"github.com/lightningnetwork/lnd/blockcache"
@@ -75,6 +76,11 @@ type RemoteSignerConfig struct {
 	// signer's stream and stops it: a wallet only borrows it, since
 	// lnd's coordinator cannot be restarted once stopped.
 	Inbound rpcwallet.InboundRemoteSignerConnection
+
+	// Host, when set, answers every signature in this process: see
+	// callbacksigner. RPCHost, MacaroonPath, TLSCertPath and Inbound are
+	// then unused, and the wallet's tree keys come from the host too.
+	Host callbacksigner.Host
 }
 
 // Validate checks the configuration is complete and fills in default
@@ -84,7 +90,7 @@ func (c *RemoteSignerConfig) Validate() error {
 	case c.Timeout < 0 || c.RequestTimeout < 0:
 		return errors.New("remote signer timeouts must not be negative")
 
-	case c.Inbound != nil:
+	case c.Inbound != nil, c.Host != nil:
 	case c.RPCHost == "":
 		return errors.New("remote signer rpchost is required")
 
@@ -200,11 +206,18 @@ func OpenRemoteSigning(ctx context.Context, cfg btcwallet.Config,
 	}
 
 	var remoteConn rpcwallet.RemoteSignerConnection
-	if remote.Inbound != nil {
+	switch {
+	case remote.Host != nil:
+		remoteConn = callbacksigner.New(
+			remote.Host, remote.RequestTimeout,
+		)
+
+	case remote.Inbound != nil:
 		remoteConn = &borrowedConn{
 			InboundRemoteSignerConnection: remote.Inbound,
 		}
-	} else {
+
+	default:
 		dialCtx, cancel := context.WithTimeout(ctx, remote.Timeout)
 		defer cancel()
 
@@ -303,6 +316,9 @@ func OpenWithSigner(cfg btcwallet.Config, bundle *walletdesc.WatchOnlyBundle,
 	}
 	if local != nil {
 		ring = &guardedKeyRing{RemoteKeyRing: ring, supplied: supplied}
+	}
+	if hosted, ok := remoteConn.(*callbacksigner.Conn); ok {
+		ring = &hostedKeyRing{RemoteKeyRing: ring, conn: hosted}
 	}
 
 	return &RemoteSigning{

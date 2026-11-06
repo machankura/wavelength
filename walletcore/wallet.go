@@ -229,6 +229,14 @@ func (w *Wallet) VerifyRemoteSigner() error {
 		return errors.New("remote-signing wallet has a local key ring")
 	}
 
+	// A host that answers through a quorum is not asked to prove it holds
+	// keys it computed the wallet's manifest from: the manifest's hash
+	// already says so, and a wallet that needed a quorum to open could not
+	// be reopened on every foreground return.
+	if _, hosted := ring.(*hostedKeyRing); hosted {
+		return nil
+	}
+
 	// An inbound signer may not have connected yet; give it the
 	// connection timeout before probing.
 	timeout := w.RemoteSigner.Timeout()

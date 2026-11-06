@@ -1,6 +1,7 @@
 package wavewalletdk
 
 import (
+	"github.com/lightninglabs/wavelength/callbacksigner"
 	"io"
 	"time"
 
@@ -148,6 +149,10 @@ type Config struct {
 // RemoteSignerConfig is the remote signer a watch-only wallet signs
 // through.
 type RemoteSignerConfig struct {
+	// Host, when set, answers every signature from inside this process,
+	// and RPCHost, MacaroonPath and TLSCertPath are unused.
+	Host callbacksigner.Host
+
 	// RPCHost is the signer's gRPC host:port.
 	RPCHost string
 

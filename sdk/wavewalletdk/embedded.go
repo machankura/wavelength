@@ -351,6 +351,7 @@ func applyConfigOverrides(daemonCfg *waved.Config, cfg Config) {
 			TLSCertPath:    cfg.RemoteSigner.TLSCertPath,
 			Timeout:        cfg.RemoteSigner.ConnectTimeout,
 			RequestTimeout: cfg.RemoteSigner.RequestTimeout,
+			Host:           cfg.RemoteSigner.Host,
 		}
 	}
 
