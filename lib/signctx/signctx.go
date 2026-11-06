@@ -35,6 +35,10 @@ const (
 	// KindOOR describes an out-of-round transfer: its Ark transaction and
 	// the checkpoints that fund it.
 	KindOOR Kind = "oor"
+
+	// KindJoin describes a round join's proof of funds: the challenge
+	// transaction that makes the proof unspendable.
+	KindJoin Kind = "join"
 )
 
 // Note is what a call site said about a signature it is about to ask for.

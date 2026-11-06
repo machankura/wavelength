@@ -572,6 +572,8 @@ func (s *joinRoundBIP322Signer) SignBIP322(toSpend *wire.MsgTx,
 		return fmt.Errorf("join auth wallet signer must be provided")
 	}
 
+	recordJoinNote(toSpend, toSign)
+
 	if len(toSign.TxIn) != len(s.signingInputs)+1 {
 		return fmt.Errorf("join auth to_sign input count %d does not "+
 			"match expected %d", len(toSign.TxIn),

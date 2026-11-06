@@ -74,6 +74,32 @@ type notedRound struct {
 	Forfeits     []notedForfeit `json:"forfeits"`
 }
 
+// notedJoin is what a signer is told about a proof of funds: the to_spend
+// transaction whose only output the proof's first input spends. to_spend cannot
+// be mined, so a signature here can never move a coin, and that is what a signer
+// checks instead of trusting that this is a proof.
+type notedJoin struct {
+	ToSpend string `json:"to_spend"`
+}
+
+// recordJoinNote notes a proof of funds under its to_sign transaction.
+func recordJoinNote(toSpend, toSign *wire.MsgTx) {
+	if !signctx.Enabled() {
+		return
+	}
+
+	var raw bytes.Buffer
+	if err := toSpend.Serialize(&raw); err != nil {
+		return
+	}
+
+	txid := toSign.TxHash()
+	signctx.Record(
+		signctx.KindJoin, txid.String(), [][32]byte{txid},
+		notedJoin{ToSpend: hex.EncodeToString(raw.Bytes())},
+	)
+}
+
 // compressedHex renders a public key that may be absent.
 func compressedHex(key *btcec.PublicKey) string {
 	if key == nil {
