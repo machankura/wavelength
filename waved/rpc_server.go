@@ -237,6 +237,31 @@ func vtxoAdmissionCode(err error) codes.Code {
 	}
 }
 
+// SwapPubKey returns the key this wallet's vHTLCs are keyed from: see
+// Server.swapKeyDesc.
+func (r *RPCServer) SwapPubKey(ctx context.Context) (*btcec.PublicKey, error) {
+	if r == nil || r.server == nil {
+		return nil, fmt.Errorf("daemon server unavailable")
+	}
+
+	desc, err := r.server.swapKeyDesc(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if desc.PubKey == nil {
+		return nil, fmt.Errorf("swap key not yet derived; wallet not " +
+			"ready")
+	}
+
+	return desc.PubKey, nil
+}
+
+// HostedSigner reports whether this wallet's signer is its host, in which case
+// its swaps are keyed apart from its identity and it holds no credit.
+func (r *RPCServer) HostedSigner() bool {
+	return r != nil && r.server != nil && r.server.hostedSigner()
+}
+
 // ClientTLSCerts returns the daemon identity client certificate used when
 // optional subservers dial mTLS-protected mailbox edges.
 func (r *RPCServer) ClientTLSCerts() ([]tls.Certificate, error) {
@@ -1992,9 +2017,12 @@ func (r *RPCServer) RefreshCustomVTXOs(ctx context.Context,
 		return nil, status.Errorf(codes.Unavailable, "fetch operator "+
 			"terms: %v", err)
 	}
-	identityDesc := r.server.loadClientKeyDesc()
+	swapKey, err := r.server.swapKeyDesc(ctx)
+	if err != nil {
+		return nil, status.Error(codes.Unavailable, err.Error())
+	}
 	if err := r.enrichCustomRefreshInputs(
-		ctx, inputs, identityDesc, terms.PubKey,
+		ctx, inputs, swapKey, terms.PubKey,
 	); err != nil {
 		return nil, err
 	}
@@ -3343,9 +3371,12 @@ func (r *RPCServer) SendOOR(ctx context.Context, req *waverpc.SendOORRequest) (
 		inputSelectDuration = time.Since(phaseStart)
 
 		phaseStart = time.Now()
-		identityDesc := r.server.loadClientKeyDesc()
+		swapKey, keyErr := r.server.swapKeyDesc(ctx)
+		if keyErr != nil {
+			return nil, status.Error(codes.Unavailable, keyErr.Error())
+		}
 		selectedInputs, err = BuildCustomTransferInputs(
-			ctx, r.server.vtxoStore, req.CustomInputs, identityDesc,
+			ctx, r.server.vtxoStore, req.CustomInputs, swapKey,
 			terms.PubKey, terms.VTXOExitDelay,
 		)
 		buildInputsDuration = time.Since(phaseStart)
@@ -3716,9 +3747,12 @@ func (r *RPCServer) PrepareOOR(ctx context.Context,
 		return nil, err
 	}
 
-	identityDesc := r.server.loadClientKeyDesc()
+	swapKey, err := r.server.swapKeyDesc(ctx)
+	if err != nil {
+		return nil, status.Error(codes.Unavailable, err.Error())
+	}
 	selectedInputs, err := BuildCustomTransferInputs(
-		ctx, r.server.vtxoStore, req.GetCustomInputs(), identityDesc,
+		ctx, r.server.vtxoStore, req.GetCustomInputs(), swapKey,
 		terms.PubKey, terms.VTXOExitDelay,
 	)
 	if err != nil {
@@ -3851,10 +3885,13 @@ func (r *RPCServer) SignOORCustomInput(ctx context.Context,
 			"operator terms: %v", err)
 	}
 
-	identityDesc := r.server.loadClientKeyDesc()
+	swapKey, err := r.server.swapKeyDesc(ctx)
+	if err != nil {
+		return nil, status.Error(codes.Unavailable, err.Error())
+	}
 	inputs, err := BuildCustomTransferInputs(
 		ctx, r.server.vtxoStore,
-		[]*waverpc.CustomOORInput{req.GetCustomInput()}, identityDesc,
+		[]*waverpc.CustomOORInput{req.GetCustomInput()}, swapKey,
 		terms.PubKey, terms.VTXOExitDelay,
 	)
 	if err != nil {
@@ -4009,7 +4046,10 @@ func (r *RPCServer) SignVTXOForfeit(ctx context.Context,
 		return nil, status.Errorf(codes.InvalidArgument, "resolve "+
 			"signing keys: %v", err)
 	}
-	identityDesc := r.server.loadClientKeyDesc()
+	identityDesc, err := r.server.swapKeyDesc(ctx)
+	if err != nil {
+		return nil, status.Error(codes.Unavailable, err.Error())
+	}
 	if !containsSigningKey(signingKeys, identityDesc.PubKey) {
 		return nil, status.Errorf(codes.InvalidArgument, "daemon "+
 			"identity key is not required by spend path")

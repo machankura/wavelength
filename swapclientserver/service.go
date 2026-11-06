@@ -9,6 +9,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"github.com/lightninglabs/wavelength/lib/keyfamily"
 	"net"
 	"net/http"
 	"os"
@@ -162,6 +163,22 @@ func daemonWithLiveOperatorKey(daemon swaps.DaemonConn,
 		DaemonConn:     daemon,
 		operatorPubKey: fetch,
 	}
+}
+
+// swapKeyDaemonConn names a separate key as the identity the swap client sees.
+type swapKeyDaemonConn struct {
+	swaps.DaemonConn
+
+	swapKey func(context.Context) (*btcec.PublicKey, error)
+}
+
+// IdentityPubKey returns the swap key. Everything the swap client does with an
+// identity, a vHTLC's participant key, an acknowledgement and a credit account,
+// is what a wallet with a hosted signer keys apart from its real identity.
+func (d *swapKeyDaemonConn) IdentityPubKey(ctx context.Context) (
+	*btcec.PublicKey, error) {
+
+	return d.swapKey(ctx)
 }
 
 // swapRuntimeClient is the narrow part of sdk/swaps that the daemon
@@ -453,10 +470,20 @@ func newSwapClientService(ctx context.Context, rpcServer *waved.RPCServer,
 	daemonConn := daemonWithLiveOperatorKey(
 		arkClient, rpcServer.OperatorPubKey,
 	)
+	if rpcServer.HostedSigner() {
+		daemonConn = &swapKeyDaemonConn{
+			DaemonConn: daemonConn,
+			swapKey:    rpcServer.SwapPubKey,
+		}
+	}
 	swapClient := swaps.NewSwapClientWithStore(
 		swapClients.server, daemonConn, log, invoiceGen, store,
 	)
 	swapClient.SetChainParams(chainParams)
+	if rpcServer.HostedSigner() {
+		swapClient.CloseCredit()
+		swapClient.SetVHTLCKeyFamily(int32(keyfamily.OORReceive))
+	}
 	recoveryCfg := cfg.VHTLCRecovery
 	swapClient.SetRecoveryPolicy(swaps.RecoveryPolicy{
 		AutoEscalate: recoveryCfg.AutoEscalate,

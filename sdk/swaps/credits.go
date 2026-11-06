@@ -86,6 +86,9 @@ func (c *SwapClient) creditAccountKey(ctx context.Context) ([]byte, error) {
 	if c == nil || c.daemon == nil {
 		return nil, fmt.Errorf("daemon is not configured")
 	}
+	if c.creditClosed {
+		return nil, ErrCreditClosed
+	}
 
 	accountKey, err := c.daemon.IdentityPubKey(ctx)
 	if err != nil {

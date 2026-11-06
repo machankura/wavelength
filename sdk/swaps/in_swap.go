@@ -585,7 +585,7 @@ func (s *paySession) createSwap(ctx context.Context) error {
 	if server, ok := s.client.server.(interface {
 		CreateInSwapWithCredits(context.Context, string, uint64,
 			*btcec.PublicKey, []byte, uint64) (*InSwapConfig, error)
-	}); ok {
+	}); ok && !s.client.creditClosed {
 
 		cfg, err = server.CreateInSwapWithCredits(
 			ctx, s.invoice, s.maxFeeSat, clientKey,

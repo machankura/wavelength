@@ -131,3 +131,23 @@ func TestUnrelatedFailedPreconditionRemainsTerminal(t *testing.T) {
 	)
 	require.Error(t, runErr)
 }
+
+// TestCloseCreditRefusesTheAccount proves a client that holds no credit will
+// not name a credit account to anybody.
+func TestCloseCreditRefusesTheAccount(t *testing.T) {
+	client := &SwapClient{daemon: &testDaemonConn{}}
+	client.CloseCredit()
+
+	_, err := client.creditAccountKey(context.Background())
+	require.ErrorIs(t, err, ErrCreditClosed)
+}
+
+// TestRecoverySignerFollowsTheVHTLCKey proves a recovery job signs with the key
+// a vHTLC was actually built from.
+func TestRecoverySignerFollowsTheVHTLCKey(t *testing.T) {
+	client := &SwapClient{}
+	require.Equal(t, int32(6), client.recoverySignerFamily())
+
+	client.SetVHTLCKeyFamily(202)
+	require.Equal(t, int32(202), client.recoverySignerFamily())
+}

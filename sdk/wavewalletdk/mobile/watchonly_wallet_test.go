@@ -90,7 +90,7 @@ func TestStartWatchOnlyWalletRejectsBadRequestAndResets(t *testing.T) {
 		},
 		"bundle": "junk",
 		"wallet_password": "cHc="
-	}`), false)
+	}`))
 	require.Error(t, err)
 	require.False(t, IsRunning())
 }

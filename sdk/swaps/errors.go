@@ -15,6 +15,10 @@ import (
 const unregisteredScriptErrText = "script not registered for principal"
 
 var (
+	// ErrCreditClosed is returned for any use of the credit account by a
+	// wallet that holds no credit.
+	ErrCreditClosed = errors.New("this wallet does not use credit")
+
 	// ErrSwapExpired is returned when a client-side swap reaches its
 	// negotiated deadline before the expected funding, claim, or preimage
 	// observation occurs.

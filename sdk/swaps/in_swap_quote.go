@@ -74,7 +74,7 @@ func (c *SwapClient) QuotePayViaLightningWithCredits(ctx context.Context,
 	if server, ok := c.server.(interface {
 		QuoteInSwapWithCredits(context.Context, string, uint64, []byte,
 			uint64) (*InSwapQuote, error)
-	}); ok {
+	}); ok && !c.creditClosed {
 
 		accountKey, err := c.daemon.IdentityPubKey(ctx)
 		if err != nil {

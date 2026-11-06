@@ -891,6 +891,15 @@ type InSwapRefundAuthorization struct {
 // SwapClient is the high-level client API for Lightning<->Ark
 // swaps.
 type SwapClient struct {
+	// creditClosed refuses every use of the server-held credit account,
+	// for a wallet whose keys a group holds: a credit balance moves on a
+	// request, with no output for anybody to check.
+	creditClosed bool
+
+	// vhtlcKeyFamily names the family of this client's vHTLC key when it
+	// is not the daemon identity's.
+	vhtlcKeyFamily *int32
+
 	server     SwapServerConn
 	daemon     DaemonConn
 	invoiceGen InvoiceCreator
@@ -923,6 +932,18 @@ func (c *SwapClient) SetOutSwapEventReceiver(receiver OutSwapEventReceiver) {
 // configured.
 func (c *SwapClient) SetChainParams(chainParams *chaincfg.Params) {
 	c.chainParams = chainParams
+}
+
+// SetVHTLCKeyFamily says which family's first key this client's vHTLCs are
+// keyed from, for the recovery jobs that have to sign with it.
+func (c *SwapClient) SetVHTLCKeyFamily(family int32) {
+	c.vhtlcKeyFamily = &family
+}
+
+// CloseCredit makes this client use no credit: no quote, payment or top-up
+// draws on it, and no receive advertises that it can take it.
+func (c *SwapClient) CloseCredit() {
+	c.creditClosed = true
 }
 
 // NewSwapClient creates a new swap client. The invoice creator may be nil for

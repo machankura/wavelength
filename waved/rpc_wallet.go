@@ -140,8 +140,11 @@ func (r *RPCServer) SignOutSwapHtlcAck(ctx context.Context,
 	if err := r.requireWalletReady(); err != nil {
 		return nil, err
 	}
-	identityDesc := r.server.loadClientKeyDesc()
-	if identityDesc.PubKey == nil {
+	swapKey, err := r.server.swapKeyDesc(ctx)
+	if err != nil {
+		return nil, status.Error(codes.Unavailable, err.Error())
+	}
+	if swapKey.PubKey == nil {
 		return nil, status.Error(
 			codes.FailedPrecondition, "identity key is not ready",
 		)
@@ -150,11 +153,11 @@ func (r *RPCServer) SignOutSwapHtlcAck(ctx context.Context,
 	var paymentHash lntypes.Hash
 	copy(paymentHash[:], req.GetPaymentHash())
 	msg := swaprpc.OutSwapHTLCAckMessage(
-		identityDesc.PubKey, paymentHash, req.GetAmountSat(),
+		swapKey.PubKey, paymentHash, req.GetAmountSat(),
 		req.GetVhtlcPkScript(),
 	)
-	sig, err := r.server.signTaggedSchnorr(
-		ctx, msg, []byte(swaprpc.OutSwapHTLCAckTag),
+	sig, err := r.server.signSwapKeyTagged(
+		ctx, swapKey, msg, []byte(swaprpc.OutSwapHTLCAckTag),
 		"out-swap HTLC acknowledgement",
 	)
 	if err != nil {
@@ -230,11 +233,14 @@ func (r *RPCServer) SignCreditAccountAuth(ctx context.Context,
 	if err := r.requireWalletReady(); err != nil {
 		return nil, err
 	}
-	identityDesc := r.server.loadClientKeyDesc()
-	if identityDesc.PubKey == nil {
+	swapKey, err := r.server.swapKeyDesc(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if swapKey.PubKey == nil {
 		return nil, fmt.Errorf("identity key is not ready")
 	}
-	identityKey := identityDesc.PubKey.SerializeCompressed()
+	identityKey := swapKey.PubKey.SerializeCompressed()
 	if !bytes.Equal(accountKey, identityKey) {
 		return nil, errCreditAccountIdentityMismatch
 	}
@@ -248,8 +254,8 @@ func (r *RPCServer) SignCreditAccountAuth(ctx context.Context,
 	message := swaprpc.CreditAccountAuthMessage(
 		identityKey, requestDigest, expiresAtUnix, nonce[:],
 	)
-	sig, err := r.server.signTaggedSchnorr(
-		ctx, message, []byte(swaprpc.CreditAccountAuthTag),
+	sig, err := r.server.signSwapKeyTagged(
+		ctx, swapKey, message, []byte(swaprpc.CreditAccountAuthTag),
 		"credit account authorization",
 	)
 	if err != nil {

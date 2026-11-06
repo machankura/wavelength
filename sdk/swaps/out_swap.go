@@ -691,6 +691,7 @@ func (s *ReceiveSession) prepareInvoice(ctx context.Context) error {
 	// invoice deadline.
 	_, supportsInArkCredit :=
 		s.client.outEvents.(IncomingVHTLCEventReceiver)
+	supportsInArkCredit = supportsInArkCredit && !s.client.creditClosed
 	quote, err := s.client.server.RequestChannelID(
 		ctx, clientKey, paymentHash, s.amountSat,
 		defaultReceiveExpirySeconds, supportsInArkCredit,

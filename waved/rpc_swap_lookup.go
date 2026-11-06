@@ -91,7 +91,12 @@ func (r *RPCServer) getIndexedVTXOByPkScript(ctx context.Context,
 					codes.Unavailable, err.Error(),
 				)
 			}
-			key := r.server.loadClientKeyDesc()
+			key, err := r.server.swapKeyDesc(ctx)
+			if err != nil {
+				return nil, status.Error(
+					codes.Unavailable, err.Error(),
+				)
+			}
 			if key.PubKey == nil {
 				return nil, status.Error(
 					codes.Unavailable,

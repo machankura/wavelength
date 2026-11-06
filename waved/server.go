@@ -5565,6 +5565,76 @@ func (s *Server) signTaggedSchnorr(ctx context.Context, msg, tag []byte,
 	return sig, err
 }
 
+// hostedSigner reports whether this wallet's signer is its host: a threshold
+// group, where the identity key is shared among its members and must hold
+// nothing they could take.
+func (s *Server) hostedSigner() bool {
+	return s.cfg.Wallet != nil && s.cfg.Wallet.RemoteSigner.Host != nil
+}
+
+// swapKeyDesc returns the key this wallet's vHTLCs are keyed from. That is the
+// identity, unless the signer is the host. There the identity signs too often
+// for a quorum, so every member holds it, and a vHTLC keyed from it could be
+// claimed by whichever member knew the preimage. So a hosted wallet keys them
+// from the first key of the out-of-round receive family, a fund key the group
+// holds, which is also what names the credit account the swap server sees.
+func (s *Server) swapKeyDesc(ctx context.Context) (keychain.KeyDescriptor,
+	error) {
+
+	if !s.hostedSigner() {
+		return s.loadClientKeyDesc(), nil
+	}
+	if s.proofKeyBackend == nil {
+		return keychain.KeyDescriptor{}, fmt.Errorf("wallet backend " +
+			"not initialized")
+	}
+
+	desc, err := s.proofKeyBackend.DeriveKey(
+		ctx, keychain.KeyLocator{Family: oorReceiveKeyFamily},
+	)
+	if err != nil {
+		return keychain.KeyDescriptor{}, fmt.Errorf("derive swap "+
+			"key: %w", err)
+	}
+
+	return *desc, nil
+}
+
+// signSwapKeyTagged signs msg with the swap key, which for a wallet with no
+// host is the identity.
+func (s *Server) signSwapKeyTagged(ctx context.Context, desc keychain.KeyDescriptor,
+	msg, tag []byte, opName string) (*schnorr.Signature, error) {
+
+	if !s.hostedSigner() {
+		return s.signTaggedSchnorr(ctx, msg, tag, opName)
+	}
+
+	var (
+		sig *schnorr.Signature
+		err error
+	)
+	sign := func(keyRing keychain.SecretKeyRing) {
+		sig, err = keyRing.SignMessageSchnorr(
+			desc.KeyLocator, msg, false, nil, tag,
+		)
+	}
+	s.lwWallet.WhenSome(func(w *lwwallet.Wallet) { sign(w.KeyRing()) })
+	if sig == nil && err == nil {
+		s.btcwWallet.WhenSome(func(w *btcwbackend.Wallet) {
+			sign(w.KeyRing())
+		})
+	}
+	if err != nil {
+		return nil, fmt.Errorf("keyring sign %s: %w", opName, err)
+	}
+	if sig == nil {
+		return nil, fmt.Errorf("no wallet backend available to sign %s",
+			opName)
+	}
+
+	return sig, nil
+}
+
 // signTaggedSchnorrViaKeyRing signs msg using the keyring's
 // SignMessageSchnorr method with the supplied BIP-340 tag, avoiding
 // any private key extraction. opName is woven into the error

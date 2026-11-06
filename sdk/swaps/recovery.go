@@ -286,9 +286,14 @@ func recoveryRequestID(direction string, paymentHash lntypes.Hash,
 		action.String())
 }
 
-// recoverySignerFamily returns the daemon identity key family used by the
-// client-side vHTLC sender/receiver key.
-func recoverySignerFamily() int32 {
+// recoverySignerFamily returns the key family of the client-side vHTLC
+// sender/receiver key: the daemon identity's, unless this client's vHTLCs are
+// keyed apart from it (index 0 of the family named by SetVHTLCKeyFamily).
+func (c *SwapClient) recoverySignerFamily() int32 {
+	if c.vhtlcKeyFamily != nil {
+		return *c.vhtlcKeyFamily
+	}
+
 	return int32(keychain.KeyFamilyNodeKey)
 }
 
@@ -369,7 +374,7 @@ func (s *paySession) ensurePayRefundRecoveryArmed(ctx context.Context) error {
 			PreimageHash: append(
 				[]byte(nil), s.cfg.PaymentHash[:]...,
 			),
-			SignerKeyFamily: recoverySignerFamily(),
+			SignerKeyFamily: s.client.recoverySignerFamily(),
 			SignerKeyIndex:  recoverySignerKeyIndex,
 			DestinationScript: append(
 				[]byte(nil), s.refundReceiveScript...,
@@ -476,7 +481,7 @@ func (s *ReceiveSession) ensureReceiveClaimRecoveryArmed(
 			PreimageHash: append(
 				[]byte(nil), s.PaymentHash[:]...,
 			),
-			SignerKeyFamily: recoverySignerFamily(),
+			SignerKeyFamily: s.client.recoverySignerFamily(),
 			SignerKeyIndex:  recoverySignerKeyIndex,
 			DestinationScript: append(
 				[]byte(nil), s.claimReceiveScript...,
