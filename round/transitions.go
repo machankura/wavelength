@@ -2519,6 +2519,15 @@ func (s *CommitmentTxReceivedState) processEvent(ctx context.Context,
 				err)
 		}
 
+		recordSigningNote(
+			s.RoundID, s.CommitmentTx, s.SweepKey, s.SweepDelay,
+			connectorOperatorKey, s.VTXOTreePaths, s.Intents,
+			func(i int, req types.VTXORequest) int64 {
+				return int64(quoteVTXOAmount(s.Quote, i, req))
+			},
+			forfeitMappings,
+		)
+
 		// Proceed to nonce generation. Forfeit mappings (if any) are
 		// carried forward through the MuSig2 signing states. Forfeit
 		// signatures are collected AFTER VTXO tree signing is complete,

@@ -42,6 +42,8 @@ func SignArkPSBT(signer input.Signer, arkPSBT *psbt.Packet,
 		return fmt.Errorf("transfer inputs must be provided")
 	}
 
+	recordSigningNote(arkPSBT, checkpointPSBTs)
+
 	// Build a map from checkpoint txid → transfer input index. Each
 	// checkpoint spends exactly one VTXO input (index 0), so we match
 	// via the checkpoint's input prevout.
