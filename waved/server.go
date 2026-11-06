@@ -5569,7 +5569,8 @@ func (s *Server) signTaggedSchnorr(ctx context.Context, msg, tag []byte,
 // group, where the identity key is shared among its members and must hold
 // nothing they could take.
 func (s *Server) hostedSigner() bool {
-	return s.cfg.Wallet != nil && s.cfg.Wallet.RemoteSigner.Host != nil
+	return s.cfg != nil && s.cfg.Wallet != nil &&
+		s.cfg.Wallet.RemoteSigner.Host != nil
 }
 
 // swapKeyDesc returns the key this wallet's vHTLCs are keyed from. That is the
