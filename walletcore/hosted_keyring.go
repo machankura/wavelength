@@ -70,8 +70,9 @@ func treeKeyDescriptor(index uint32, raw []byte) (keychain.KeyDescriptor,
 
 	pub, err := btcec.ParsePubKey(raw)
 	if err != nil {
-		return keychain.KeyDescriptor{}, fmt.Errorf("parse tree key: %w",
-			err)
+		return keychain.KeyDescriptor{}, fmt.Errorf(
+			"parse tree key: %w", err,
+		)
 	}
 
 	return keychain.KeyDescriptor{

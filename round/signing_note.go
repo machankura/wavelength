@@ -84,8 +84,8 @@ type notedRound struct {
 
 // notedJoin is what a signer is told about a proof of funds: the to_spend
 // transaction whose only output the proof's first input spends. to_spend cannot
-// be mined, so a signature here can never move a coin, and that is what a signer
-// checks instead of trusting that this is a proof.
+// be mined, so a signature here can never move a coin, and that is what a
+// signer checks instead of trusting that this is a proof.
 type notedJoin struct {
 	ToSpend string `json:"to_spend"`
 }

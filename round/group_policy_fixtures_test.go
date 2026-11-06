@@ -3,6 +3,7 @@ package round
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"os"
@@ -34,6 +35,7 @@ import (
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/lnrpc/signrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/walletrpc"
+	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/stretchr/testify/require"
 )
 
@@ -137,6 +139,11 @@ type policyFixtures struct {
 	OORArk     json.RawMessage `json:"oor_ark"`
 	OORPoint   json.RawMessage `json:"oor_checkpoint"`
 	IndexerMsg json.RawMessage `json:"indexer_message"`
+	ClaimArk   json.RawMessage `json:"claim_ark"`
+	ClaimPoint json.RawMessage `json:"claim_checkpoint"`
+	SendArk    json.RawMessage `json:"send_ark"`
+	SendPoint  json.RawMessage `json:"send_checkpoint"`
+	RefundArk  json.RawMessage `json:"refund_ark"`
 }
 
 // fixtureKeys derives the group's keys from the pinned manifest.
@@ -600,6 +607,207 @@ func TestGroupPolicyFixtures(t *testing.T) {
 		oldOwner, collab, oldSpend,
 	))
 
+	// A Lightning payment coming in: a vHTLC to the group's swap key, claimed
+	// into a VTXO of its own, by the real policy and the real builders.
+	preimage := lntypes.Preimage(sha256.Sum256([]byte("a group's first receive")))
+	swapKey := keys.family(202, 0)
+	vhtlc, err := arkscript.NewVHTLCPolicy(arkscript.VHTLCOpts{
+		Sender:                               seeded(0x38).PubKey(),
+		Receiver:                             swapKey,
+		Server:                               operator,
+		PreimageHash:                         preimage.Hash(),
+		RefundLocktime:                       400_000,
+		UnilateralClaimDelay:                 288,
+		UnilateralRefundDelay:                432,
+		UnilateralRefundWithoutReceiverDelay: 576,
+	})
+	require.NoError(t, err)
+	vhtlcScript, err := vhtlc.PkScript()
+	require.NoError(t, err)
+	claimSpend, err := vhtlc.ClaimSpendInfo()
+	require.NoError(t, err)
+	claimLeaf := claimSpend.WitnessScript
+	vhtlcOutpoint := wire.OutPoint{Hash: chainhash.Hash{0xc1}, Index: 0}
+
+	claimPoint, err := oor.BuildCheckpointPSBT(
+		policy, oor.CheckpointInput{
+			SpentVTXO: oor.SpentVTXORef{
+				Outpoint: vhtlcOutpoint,
+				Output: &wire.TxOut{
+					Value: 30_000, PkScript: vhtlcScript,
+				},
+			},
+			OwnerLeafScript: claimLeaf,
+		},
+	)
+	require.NoError(t, err)
+	claimOutput, err := claimPoint.ToCheckpointOutput()
+	require.NoError(t, err)
+	claimPacket, err := oor.BuildArkPSBT(
+		[]oor.CheckpointOutput{claimOutput},
+		[]oor.RecipientOutput{{
+			PkScript: receiverScript, Value: btcutil.Amount(30_000),
+		}},
+	)
+	require.NoError(t, err)
+
+	claimArkTxid := claimPacket.UnsignedTx.TxHash()
+	signctx.Record(
+		signctx.KindOOR, claimArkTxid.String(), [][32]byte{
+			claimArkTxid, claimPoint.PSBT.UnsignedTx.TxHash(),
+		},
+		map[string]any{
+			"ark":         notedArk(claimPacket),
+			"checkpoints": []notedRoundTx{notedArk(claimPoint.PSBT)},
+		},
+	)
+	claimArk := signPacket(signingPacket(
+		t, claimPacket.UnsignedTx.Copy(),
+		[]*wire.TxOut{claimOutput.Output}, 0, 202, 0, swapKey,
+		claimLeaf, claimSpend,
+	))
+
+	claimFetcher := txscript.NewCannedPrevOutputFetcher(
+		claimOutput.Output.PkScript, claimOutput.Output.Value,
+	)
+	claimDigest, err := txscript.CalcTapscriptSignaturehash(
+		txscript.NewTxSigHashes(claimPacket.UnsignedTx, claimFetcher),
+		txscript.SigHashDefault, claimPacket.UnsignedTx, 0, claimFetcher,
+		txscript.NewBaseTapLeaf(claimLeaf),
+	)
+	require.NoError(t, err)
+	claimSig, err := schnorr.Sign(seeded(0x31), claimDigest)
+	require.NoError(t, err)
+	coSignedClaim := notedArk(claimPacket)
+	coSignedClaim.Sigs = []notedRoundSig{{
+		Input:     0,
+		Signature: hex.EncodeToString(claimSig.Serialize()),
+	}}
+	signctx.Amend(claimArkTxid, map[string]any{
+		"ark":         coSignedClaim,
+		"checkpoints": []notedRoundTx{notedArk(claimPoint.PSBT)},
+	})
+	claimCheckpoint := signPacket(signingPacket(
+		t, claimPoint.PSBT.UnsignedTx.Copy(),
+		[]*wire.TxOut{{Value: 30_000, PkScript: vhtlcScript}}, 0, 202, 0,
+		swapKey, claimLeaf, claimSpend,
+	))
+
+	// A Lightning payment going out: the group's old VTXO into a vHTLC it can
+	// get back, and change to its own receive key.
+	sendPreimage := lntypes.Preimage(sha256.Sum256([]byte("a group's first payment")))
+	sendOpts := arkscript.VHTLCOpts{
+		Sender:                               swapKey,
+		Receiver:                             seeded(0x38).PubKey(),
+		Server:                               operator,
+		PreimageHash:                         sendPreimage.Hash(),
+		RefundLocktime:                       400_000,
+		UnilateralClaimDelay:                 288,
+		UnilateralRefundDelay:                432,
+		UnilateralRefundWithoutReceiverDelay: 576,
+	}
+	sendVHTLC, err := arkscript.NewVHTLCPolicy(sendOpts)
+	require.NoError(t, err)
+	sendScript, err := sendVHTLC.PkScript()
+	require.NoError(t, err)
+	sendPacket, err := oor.BuildArkPSBT(
+		[]oor.CheckpointOutput{checkpointOutput},
+		[]oor.RecipientOutput{
+			{PkScript: sendScript, Value: btcutil.Amount(15_000)},
+			{PkScript: receiverScript, Value: btcutil.Amount(25_000)},
+		},
+	)
+	require.NoError(t, err)
+	sendTxid := sendPacket.UnsignedTx.TxHash()
+	notedSendVHTLC := map[string]any{
+		"pk_script":                     hex.EncodeToString(sendScript),
+		"sender":                        hex.EncodeToString(swapKey.SerializeCompressed()),
+		"receiver":                      hex.EncodeToString(sendOpts.Receiver.SerializeCompressed()),
+		"server":                        hex.EncodeToString(operator.SerializeCompressed()),
+		"payment_hash":                  hex.EncodeToString(sendOpts.PreimageHash[:]),
+		"refund_locktime":               sendOpts.RefundLocktime,
+		"claim_delay":                   sendOpts.UnilateralClaimDelay,
+		"refund_delay":                  sendOpts.UnilateralRefundDelay,
+		"refund_without_receiver_delay": sendOpts.UnilateralRefundWithoutReceiverDelay,
+	}
+	signctx.Record(
+		signctx.KindOOR, sendTxid.String(), [][32]byte{
+			sendTxid, checkpointArtifact.PSBT.UnsignedTx.TxHash(),
+		},
+		map[string]any{
+			"ark":         notedArk(sendPacket),
+			"checkpoints": []notedRoundTx{notedArk(checkpointArtifact.PSBT)},
+			"vhtlcs":      []any{notedSendVHTLC},
+		},
+	)
+	sendArk := signPacket(signingPacket(
+		t, sendPacket.UnsignedTx.Copy(), arkPrev, 0, 44, 3, oldOwner,
+		collab, checkpointSpend,
+	))
+	sendDigest, err := txscript.CalcTapscriptSignaturehash(
+		txscript.NewTxSigHashes(sendPacket.UnsignedTx, arkFetcher),
+		txscript.SigHashDefault, sendPacket.UnsignedTx, 0, arkFetcher,
+		txscript.NewBaseTapLeaf(collab),
+	)
+	require.NoError(t, err)
+	sendSig, err := schnorr.Sign(seeded(0x31), sendDigest)
+	require.NoError(t, err)
+	coSignedSend := notedArk(sendPacket)
+	coSignedSend.Sigs = []notedRoundSig{{
+		Input:     0,
+		Signature: hex.EncodeToString(sendSig.Serialize()),
+	}}
+	signctx.Amend(sendTxid, map[string]any{
+		"ark":         coSignedSend,
+		"checkpoints": []notedRoundTx{notedArk(checkpointArtifact.PSBT)},
+		"vhtlcs":      []any{notedSendVHTLC},
+	})
+	sendCheckpoint := signPacket(signingPacket(
+		t, checkpointArtifact.PSBT.UnsignedTx.Copy(),
+		[]*wire.TxOut{{Value: 40_000, PkScript: oldScript}}, 0, 44, 3,
+		oldOwner, collab, oldSpend,
+	))
+
+	// And when it fails: the same vHTLC back into the group's own key, by
+	// the cooperative refund leaf.
+	refundSpend, err := sendVHTLC.RefundSpendInfo()
+	require.NoError(t, err)
+	refundLeaf := refundSpend.WitnessScript
+	refundPoint, err := oor.BuildCheckpointPSBT(
+		policy, oor.CheckpointInput{
+			SpentVTXO: oor.SpentVTXORef{
+				Outpoint: wire.OutPoint{Hash: chainhash.Hash{0xc2}},
+				Output: &wire.TxOut{
+					Value: 15_000, PkScript: sendScript,
+				},
+			},
+			OwnerLeafScript: refundLeaf,
+		},
+	)
+	require.NoError(t, err)
+	refundOutput, err := refundPoint.ToCheckpointOutput()
+	require.NoError(t, err)
+	refundPacket, err := oor.BuildArkPSBT(
+		[]oor.CheckpointOutput{refundOutput},
+		[]oor.RecipientOutput{{
+			PkScript: receiverScript, Value: btcutil.Amount(15_000),
+		}},
+	)
+	require.NoError(t, err)
+	refundTxid := refundPacket.UnsignedTx.TxHash()
+	signctx.Record(
+		signctx.KindOOR, refundTxid.String(), [][32]byte{refundTxid},
+		map[string]any{
+			"ark":         notedArk(refundPacket),
+			"checkpoints": []notedRoundTx{notedArk(refundPoint.PSBT)},
+		},
+	)
+	refundArk := signPacket(signingPacket(
+		t, refundPacket.UnsignedTx.Copy(),
+		[]*wire.TxOut{refundOutput.Output}, 0, 202, 0, swapKey,
+		refundLeaf, refundSpend,
+	))
+
 	// An indexer proof under a VTXO owner key.
 	_, err = conn.SignMessage(ctx, &signrpc.SignMessageReq{
 		Msg:        []byte("query scope"),
@@ -625,6 +833,11 @@ func TestGroupPolicyFixtures(t *testing.T) {
 		JoinProof:  joinProof,
 		ExitSweep:  exitSweep,
 		OORArk:     oorArk,
+		ClaimArk:   claimArk,
+		ClaimPoint: claimCheckpoint,
+		SendArk:    sendArk,
+		SendPoint:  sendCheckpoint,
+		RefundArk:  refundArk,
 		OORPoint:   oorPoint,
 		IndexerMsg: indexerMsg,
 	}

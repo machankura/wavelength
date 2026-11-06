@@ -2,6 +2,7 @@ package swaps
 
 import (
 	"context"
+	"sync"
 	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
@@ -888,6 +889,17 @@ type InSwapRefundAuthorization struct {
 	FailureReason string
 }
 
+// VHTLCPolicyLookup finds a VTXO by its output script and policy template.
+type VHTLCPolicyLookup interface {
+	// FindLiveVTXOByPolicy returns the live VTXO matching them.
+	FindLiveVTXOByPolicy(ctx context.Context, pkScript,
+		policyTemplate []byte) (*VTXOInfo, error)
+
+	// FindSpentVTXOByPolicy returns the spent VTXO matching them.
+	FindSpentVTXOByPolicy(ctx context.Context, pkScript,
+		policyTemplate []byte) (*VTXOInfo, error)
+}
+
 // SwapClient is the high-level client API for Lightning<->Ark
 // swaps.
 type SwapClient struct {
@@ -899,6 +911,14 @@ type SwapClient struct {
 	// vhtlcKeyFamily names the family of this client's vHTLC key when it
 	// is not the daemon identity's.
 	vhtlcKeyFamily *int32
+
+	// vhtlcPolicyLookup finds a receive's funded vHTLC by its policy, when
+	// the wallet's identity can't prove it takes part.
+	vhtlcPolicyLookup VHTLCPolicyLookup
+
+	// vhtlcPolicies holds the policy of each vHTLC a session is asking
+	// about, by output script.
+	vhtlcPolicies sync.Map
 
 	server     SwapServerConn
 	daemon     DaemonConn
@@ -938,6 +958,66 @@ func (c *SwapClient) SetChainParams(chainParams *chaincfg.Params) {
 // keyed from, for the recovery jobs that have to sign with it.
 func (c *SwapClient) SetVHTLCKeyFamily(family int32) {
 	c.vhtlcKeyFamily = &family
+}
+
+// SetVHTLCPolicyLookup makes this client look for a receive's funded vHTLC by
+// its policy, for a wallet whose identity isn't a participant in it, so that
+// the indexer takes the proof. interval replaces the usual polling, since a
+// proof by that key may be more than a cheap signature for the wallet to make.
+func (c *SwapClient) SetVHTLCPolicyLookup(lookup VHTLCPolicyLookup,
+	interval time.Duration) {
+
+	c.vhtlcPolicyLookup = lookup
+	c.waitPollInterval = interval
+}
+
+// rememberVHTLCPolicy notes a vHTLC's policy, for the lookups about it that
+// only have its script.
+func (c *SwapClient) rememberVHTLCPolicy(pkScript, policyTemplate []byte) {
+	if c.vhtlcPolicyLookup != nil && len(pkScript) != 0 &&
+		len(policyTemplate) != 0 {
+
+		c.vhtlcPolicies.Store(string(pkScript), policyTemplate)
+	}
+}
+
+// vhtlcPolicy returns the policy remembered for a vHTLC's script, if any.
+func (c *SwapClient) vhtlcPolicy(pkScript []byte) ([]byte, bool) {
+	stored, ok := c.vhtlcPolicies.Load(string(pkScript))
+	if !ok {
+		return nil, false
+	}
+	policy, ok := stored.([]byte)
+
+	return policy, ok
+}
+
+// findLiveVHTLC returns a live vHTLC, by its policy where the wallet needs
+// that.
+func (c *SwapClient) findLiveVHTLC(ctx context.Context, pkScript []byte) (
+	*VTXOInfo, error) {
+
+	if policy, ok := c.vhtlcPolicy(pkScript); ok {
+		return c.vhtlcPolicyLookup.FindLiveVTXOByPolicy(
+			ctx, pkScript, policy,
+		)
+	}
+
+	return c.daemon.FindLiveVTXOByPkScript(ctx, pkScript)
+}
+
+// findSpentVHTLC returns a spent vHTLC, by its policy where the wallet needs
+// that.
+func (c *SwapClient) findSpentVHTLC(ctx context.Context, pkScript []byte) (
+	*VTXOInfo, error) {
+
+	if policy, ok := c.vhtlcPolicy(pkScript); ok {
+		return c.vhtlcPolicyLookup.FindSpentVTXOByPolicy(
+			ctx, pkScript, policy,
+		)
+	}
+
+	return c.daemon.FindSpentVTXOByPkScript(ctx, pkScript)
 }
 
 // CloseCredit makes this client use no credit: no quote, payment or top-up

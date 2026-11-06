@@ -3528,7 +3528,9 @@ func (s *PartialSigsSentState) processEvent(ctx context.Context,
 			}
 		}
 
-		recordSignedTrees(s.CommitmentTx.UnsignedTx.TxHash(), evt.AggSigs)
+		recordSignedTrees(
+			s.CommitmentTx.UnsignedTx.TxHash(), evt.AggSigs,
+		)
 
 		env.Log.InfoS(ctx, "Validated aggregated signatures",
 			slog.String("round_id", s.RoundID.String()),

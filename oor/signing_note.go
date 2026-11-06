@@ -3,6 +3,7 @@ package oor
 import (
 	"bytes"
 	"encoding/hex"
+	"encoding/json"
 
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/psbt/v2"
@@ -37,6 +38,10 @@ type notedTx struct {
 type notedPackage struct {
 	Ark         notedTx   `json:"ark"`
 	Checkpoints []notedTx `json:"checkpoints"`
+
+	// VHTLCs says what those of the Ark transaction's outputs are, for a
+	// signer that has to rebuild them before it pays one.
+	VHTLCs []json.RawMessage `json:"vhtlcs,omitempty"`
 }
 
 // notedTxOf renders a PSBT's transaction and prevouts, or reports it can't.
@@ -85,10 +90,10 @@ func notedTxOf(packet *psbt.Packet) (notedTx, bool) {
 
 // recordSigningNote notes a transfer's package under each of its transactions,
 // so that signing any of them finds it. A package that will not render is left
-// unnoted, which leaves a signer that wants a note refusing it. It is noted again
-// once the operator has co-signed, since a signature on a checkpoint hands the
-// VTXO over, and a signer wants to see first that the Ark transaction can spend
-// what it hands over to.
+// unnoted, which leaves a signer that wants a note refusing it. It is noted
+// again once the operator has co-signed, since a signature on a checkpoint
+// hands the VTXO over, and a signer wants to see first that the Ark transaction
+// can spend what it hands over to.
 func recordSigningNote(ark *psbt.Packet, checkpoints []*psbt.Packet) {
 	if !signctx.Enabled() {
 		return
@@ -109,6 +114,11 @@ func recordSigningNote(ark *psbt.Packet, checkpoints []*psbt.Packet) {
 		}
 		keys = append(keys, checkpoint.UnsignedTx.TxHash())
 		material.Checkpoints = append(material.Checkpoints, noted)
+	}
+	for _, output := range ark.UnsignedTx.TxOut {
+		if policy, ok := signctx.PolicyOf(output.PkScript); ok {
+			material.VHTLCs = append(material.VHTLCs, policy)
+		}
 	}
 
 	signctx.Record(signctx.KindOOR, arkTxid.String(), keys, material)

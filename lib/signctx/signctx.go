@@ -59,11 +59,53 @@ var (
 	mu     sync.Mutex
 	notes  = make(map[[32]byte]*Note)
 	oldest [][32]byte
+
+	// policies holds what a call site said about an output script, so that
+	// the note on the transaction paying it can say so too. It is bounded
+	// the same way as notes.
+	policies      = make(map[string]json.RawMessage)
+	policiesOrder []string
 )
 
 // Enable starts recording notes.
 func Enable() {
 	enabled.Store(true)
+}
+
+// RecordPolicy says what an output script is, for a signer that rebuilds it.
+func RecordPolicy(pkScript []byte, material any) {
+	if !Enabled() {
+		return
+	}
+
+	raw, err := json.Marshal(material)
+	if err != nil {
+		return
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+
+	key := string(pkScript)
+	if _, known := policies[key]; !known {
+		policiesOrder = append(policiesOrder, key)
+	}
+	policies[key] = raw
+
+	for len(policiesOrder) > maxNotes {
+		delete(policies, policiesOrder[0])
+		policiesOrder = policiesOrder[1:]
+	}
+}
+
+// PolicyOf returns what was recorded about an output script.
+func PolicyOf(pkScript []byte) (json.RawMessage, bool) {
+	mu.Lock()
+	defer mu.Unlock()
+
+	raw, ok := policies[string(pkScript)]
+
+	return raw, ok
 }
 
 // Disable stops recording and forgets every note.
@@ -75,6 +117,8 @@ func Disable() {
 
 	notes = make(map[[32]byte]*Note)
 	oldest = nil
+	policies = make(map[string]json.RawMessage)
+	policiesOrder = nil
 }
 
 // Enabled reports whether a signer is reading notes, so a call site can skip

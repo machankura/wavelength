@@ -978,6 +978,50 @@ func (c *Client) FindLiveVTXOByPkScript(ctx context.Context, pkScript []byte) (
 	)
 }
 
+// FindLiveVTXOByPolicy is FindLiveVTXOByPkScript for an output this wallet
+// takes part in by a policy of its own, which it proves to the indexer as a
+// participant of that policy.
+func (c *Client) FindLiveVTXOByPolicy(ctx context.Context, pkScript,
+	policyTemplate []byte) (*VTXOInfo, error) {
+
+	return c.findIndexedVTXOByPolicy(
+		ctx, pkScript, policyTemplate,
+		waverpc.VTXOStatus_VTXO_STATUS_LIVE,
+	)
+}
+
+// FindSpentVTXOByPolicy is FindLiveVTXOByPolicy for a spent one.
+func (c *Client) FindSpentVTXOByPolicy(ctx context.Context, pkScript,
+	policyTemplate []byte) (*VTXOInfo, error) {
+
+	return c.findIndexedVTXOByPolicy(
+		ctx, pkScript, policyTemplate,
+		waverpc.VTXOStatus_VTXO_STATUS_SPENT,
+	)
+}
+
+// findIndexedVTXOByPolicy queries the indexer by a policy and status.
+func (c *Client) findIndexedVTXOByPolicy(ctx context.Context, pkScript,
+	policyTemplate []byte, status waverpc.VTXOStatus) (*VTXOInfo, error) {
+
+	resp, err := c.GetIndexedVTXOByPkScript(ctx,
+		&waverpc.GetIndexedVTXOByPkScriptRequest{
+			PkScript:       append([]byte(nil), pkScript...),
+			PolicyTemplate: append([]byte(nil), policyTemplate...),
+			StatusFilter:   []waverpc.VTXOStatus{status},
+		},
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	if resp.GetVtxo() == nil {
+		return nil, nil
+	}
+
+	return newVTXOInfo(resp.GetVtxo())
+}
+
 // FindSpentVTXOByPkScript returns the first spent indexed VTXO matching the
 // supplied output script.
 func (c *Client) FindSpentVTXOByPkScript(ctx context.Context, pkScript []byte) (

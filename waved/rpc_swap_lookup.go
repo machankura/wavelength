@@ -226,6 +226,19 @@ func (r *RPCServer) GetIndexedOORSessionByTxid(ctx context.Context,
 	resp, err := r.server.indexer.GetOORSessionByTxidTaproot(
 		ctx, req.PkScript, req.SessionTxid,
 	)
+	// A hosted signer's vHTLCs are its swap key's, not its identity's, so
+	// that key is asked for only when the free proof wasn't enough.
+	if err != nil && r.server.hostedSigner() {
+		factory, factoryErr := r.server.indexerProofSignerFactory()
+		key, keyErr := r.server.swapKeyDesc(ctx)
+		if factoryErr == nil && keyErr == nil {
+			resp, err = r.server.indexer.WithSigner(
+				factory(key),
+			).GetOORSessionByTxidTaproot(
+				ctx, req.PkScript, req.SessionTxid,
+			)
+		}
+	}
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "indexer query "+
 			"failed: %v", err)

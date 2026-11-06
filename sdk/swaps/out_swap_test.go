@@ -5442,3 +5442,85 @@ func TestRequestChannelIDAdvertisesInArkCreditByReceiver(t *testing.T) {
 		})
 	}
 }
+
+// policyLookupStub answers lookups by policy, and records what it was asked.
+type policyLookupStub struct {
+	policy []byte
+	spent  bool
+}
+
+// FindLiveVTXOByPolicy implements VHTLCPolicyLookup.
+func (l *policyLookupStub) FindLiveVTXOByPolicy(_ context.Context, script,
+	policy []byte) (*VTXOInfo, error) {
+
+	l.policy = policy
+
+	return &VTXOInfo{
+		Outpoint: "funded:0", AmountSat: 10_000, PkScript: script,
+	}, nil
+}
+
+// FindSpentVTXOByPolicy implements VHTLCPolicyLookup.
+func (l *policyLookupStub) FindSpentVTXOByPolicy(_ context.Context, _,
+	policy []byte) (*VTXOInfo, error) {
+
+	l.policy = policy
+	l.spent = true
+
+	return nil, nil
+}
+
+// TestVHTLCLookupsByPolicy proves a wallet whose identity takes no part in a
+// vHTLC asks about it by its policy, for both live and spent, and never by the
+// identity's proof, which the indexer refuses and which stops the swap.
+func TestVHTLCLookupsByPolicy(t *testing.T) {
+	t.Parallel()
+
+	pkScript := []byte{0x51, 0x20, 0x01}
+	template := []byte{0x02}
+	daemonConn := &testDaemonConn{}
+	client := NewSwapClient(nil, daemonConn, nil, nil)
+	lookup := &policyLookupStub{}
+	client.SetVHTLCPolicyLookup(lookup, time.Second)
+	client.rememberVHTLCPolicy(pkScript, template)
+
+	funding, err := client.waitForVHTLC(
+		t.Context(), pkScript, time.Time{}, nil,
+	)
+	require.NoError(t, err)
+	require.Equal(t, "funded:0", funding.Outpoint)
+	require.Equal(t, template, lookup.policy)
+
+	lookup.policy = nil
+	claimed, err := client.receiveClaimAlreadyIndexed(
+		t.Context(), lntypes.Hash{1}, pkScript,
+	)
+	require.NoError(t, err)
+	require.False(t, claimed)
+	require.True(t, lookup.spent)
+	require.Equal(t, template, lookup.policy)
+	require.Zero(t, daemonConn.liveLookupCalls)
+}
+
+// TestVHTLCLookupsWithoutPolicy proves an ordinary wallet still asks the daemon,
+// even for a script it has noted, since it set no lookup.
+func TestVHTLCLookupsWithoutPolicy(t *testing.T) {
+	t.Parallel()
+
+	pkScript := []byte{0x51, 0x20, 0x01}
+	daemonConn := &testDaemonConn{liveByPkScript: map[string]*VTXOInfo{
+		hex.EncodeToString(pkScript): {
+			Outpoint: "funded:0", AmountSat: 10_000,
+			PkScript: pkScript,
+		},
+	}}
+	client := NewSwapClient(nil, daemonConn, nil, nil)
+	client.rememberVHTLCPolicy(pkScript, []byte{0x02})
+
+	funding, err := client.waitForVHTLC(
+		t.Context(), pkScript, time.Time{}, nil,
+	)
+	require.NoError(t, err)
+	require.Equal(t, "funded:0", funding.Outpoint)
+	require.Equal(t, 1, daemonConn.liveLookupCalls)
+}

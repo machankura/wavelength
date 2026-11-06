@@ -176,6 +176,28 @@ func (r *RPCServer) SignMailboxAuth(ctx context.Context,
 	return hex.EncodeToString(sig.Serialize()), nil
 }
 
+// SignSwapMailboxAuth returns the mailbox auth signature for the swap client,
+// whose mailbox sender is the key it sees as this wallet's identity. A wallet
+// with a hosted signer keys that apart from its real identity, so it has to
+// sign with the same key, or the swap server rejects every pull.
+func (r *RPCServer) SignSwapMailboxAuth(ctx context.Context,
+	recipientMailboxID string) (string, error) {
+
+	if r == nil || r.server == nil {
+		return "", fmt.Errorf("daemon server unavailable")
+	}
+	if !r.server.hostedSigner() {
+		return r.SignMailboxAuth(ctx, recipientMailboxID)
+	}
+
+	sig, err := r.server.swapMailboxAuthSig(ctx, recipientMailboxID)
+	if err != nil {
+		return "", err
+	}
+
+	return hex.EncodeToString(sig.Serialize()), nil
+}
+
 // OperatorPubKey fetches the current Ark operator pubkey directly from the
 // server and refreshes the daemon's cached operator terms snapshot. Optional
 // subservers that build new policy scripts should use this rather than

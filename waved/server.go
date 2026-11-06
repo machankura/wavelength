@@ -5603,8 +5603,9 @@ func (s *Server) swapKeyDesc(ctx context.Context) (keychain.KeyDescriptor,
 
 // signSwapKeyTagged signs msg with the swap key, which for a wallet with no
 // host is the identity.
-func (s *Server) signSwapKeyTagged(ctx context.Context, desc keychain.KeyDescriptor,
-	msg, tag []byte, opName string) (*schnorr.Signature, error) {
+func (s *Server) signSwapKeyTagged(ctx context.Context,
+	desc keychain.KeyDescriptor, msg, tag []byte,
+	opName string) (*schnorr.Signature, error) {
 
 	if !s.hostedSigner() {
 		return s.signTaggedSchnorr(ctx, msg, tag, opName)

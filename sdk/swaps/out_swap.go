@@ -571,6 +571,11 @@ func (s *ReceiveSession) VHTLCInfo() (*ReceiveVHTLCInfo, error) {
 
 // runUntil advances the receive FSM until the target or a terminal state is
 // reached.
+func (s *ReceiveSession) rememberVHTLCPolicy() {
+	s.client.rememberVHTLCPolicy(s.vhtlcPkScript, s.vhtlcPolicyTemplate)
+}
+
+// runUntil steps the session until it reaches one of the wanted states.
 func (s *ReceiveSession) runUntil(ctx context.Context,
 	target ReceiveState) error {
 
@@ -883,6 +888,7 @@ func (s *ReceiveSession) waitForFunding(ctx context.Context) error {
 	if err := s.ackAcceptedHTLCEvent(ctx, nil); err != nil {
 		return err
 	}
+	s.rememberVHTLCPolicy()
 
 	if s.vhtlcPolicy == nil || len(s.vhtlcPkScript) == 0 {
 		return fmt.Errorf("out-swap HTLC event has not been accepted " +
@@ -1665,6 +1671,8 @@ func (s *ReceiveSession) failReceiveTimingAdmission(ctx context.Context,
 // claimFundedVHTLC reconciles an already-spent vHTLC before sending the claim
 // transaction, then submits the preimage claim if no spend is indexed yet.
 func (s *ReceiveSession) claimFundedVHTLC(ctx context.Context) error {
+	s.rememberVHTLCPolicy()
+
 	if s.claimSessionID != "" {
 
 		// A persisted claim session ID means the daemon admitted the
@@ -1813,6 +1821,8 @@ func (s *ReceiveSession) completeIndexedClaim(ctx context.Context) error {
 // a co-signed spend of the vHTLC behind, so a second claim could conflict with
 // it. That case stops for intervention with the recovery still armed.
 func (s *ReceiveSession) resolveClaimSession(ctx context.Context) error {
+	s.rememberVHTLCPolicy()
+
 	session, err := s.client.daemon.GetOORSession(ctx, s.claimSessionID)
 	if err != nil {
 		return newRetryableActionError(
@@ -2038,7 +2048,7 @@ func (s *ReceiveSession) waitForClaimResumeGrace(ctx context.Context) error {
 func (c *SwapClient) receiveClaimAlreadyIndexed(ctx context.Context,
 	paymentHash lntypes.Hash, pkScript []byte) (bool, error) {
 
-	vtxo, err := c.daemon.FindSpentVTXOByPkScript(ctx, pkScript)
+	vtxo, err := c.findSpentVHTLC(ctx, pkScript)
 	if err != nil || vtxo == nil {
 		return false, err
 	}
@@ -2208,9 +2218,7 @@ func (s *ReceiveSession) reconcileLiveReceiveFunding(
 		return nil
 	}
 
-	vtxo, err := s.client.daemon.FindLiveVTXOByPkScript(
-		ctx, s.vhtlcPkScript,
-	)
+	vtxo, err := s.client.findLiveVHTLC(ctx, s.vhtlcPkScript)
 	if err != nil {
 		s.client.log.DebugS(
 			ctx,
@@ -2274,7 +2282,7 @@ func (c *SwapClient) waitForVHTLC(ctx context.Context, pkScript []byte,
 			return nil, err
 		}
 
-		vtxo, err := c.daemon.FindLiveVTXOByPkScript(ctx, pkScript)
+		vtxo, err := c.findLiveVHTLC(ctx, pkScript)
 		if err != nil {
 			c.log.DebugS(ctx, "Unable to query vHTLC state",
 				slog.String("err", err.Error()),

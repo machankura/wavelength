@@ -12,6 +12,7 @@ import (
 	"github.com/btcsuite/btclog/v2"
 	loopfsm "github.com/lightninglabs/loop/fsm"
 	"github.com/lightninglabs/wavelength/lib/arkscript"
+	"github.com/lightninglabs/wavelength/lib/signctx"
 	"github.com/lightninglabs/wavelength/waverpc"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"google.golang.org/grpc/codes"
@@ -760,6 +761,54 @@ func (s *paySession) ensureFundingStillSafe(ctx context.Context) error {
 	return nil
 }
 
+// notedVHTLC is what a signer that judges its requests is told about a vHTLC
+// this wallet pays, since a template is for the daemon to read.
+type notedVHTLC struct {
+	PkScript                 string `json:"pk_script"`
+	Sender                   string `json:"sender"`
+	Receiver                 string `json:"receiver"`
+	Server                   string `json:"server"`
+	PaymentHash              string `json:"payment_hash"`
+	RefundLocktime           uint32 `json:"refund_locktime"`
+	ClaimDelay               uint32 `json:"claim_delay"`
+	RefundDelay              uint32 `json:"refund_delay"`
+	RefundWithoutReceiverDly uint32 `json:"refund_without_receiver_delay"`
+}
+
+// noteVHTLC says what this session's vHTLC is, and asks about it by its policy
+// from here on where the wallet needs that.
+func (s *paySession) noteVHTLC(ctx context.Context) {
+	s.client.rememberVHTLCPolicy(s.vhtlcPkScript, s.vhtlcPolicyTemplate)
+	if !signctx.Enabled() || s.cfg == nil || len(s.vhtlcPkScript) == 0 {
+		return
+	}
+
+	clientKey, err := s.client.daemon.IdentityPubKey(ctx)
+	if err != nil {
+		return
+	}
+	operatorKey, err := s.client.daemon.OperatorPubKey(ctx)
+	if err != nil {
+		return
+	}
+	signctx.RecordPolicy(s.vhtlcPkScript, notedVHTLC{
+		PkScript: hex.EncodeToString(s.vhtlcPkScript),
+		Sender:   hex.EncodeToString(clientKey.SerializeCompressed()),
+		Receiver: hex.EncodeToString(
+			s.cfg.ServerPubkey.SerializeCompressed(),
+		),
+		Server: hex.EncodeToString(
+			operatorKey.SerializeCompressed(),
+		),
+		PaymentHash:    hex.EncodeToString(s.cfg.PaymentHash[:]),
+		RefundLocktime: s.cfg.VHTLCConfig.RefundLocktime,
+		ClaimDelay:     s.cfg.VHTLCConfig.UnilateralClaimDelay,
+		RefundDelay:    s.cfg.VHTLCConfig.UnilateralRefundDelay,
+		RefundWithoutReceiverDly: s.cfg.VHTLCConfig.
+			UnilateralRefundWithoutReceiverDelay,
+	})
+}
+
 // fundingAdmissionDeadline returns the wall-clock cutoff shared with Waved.
 // The local safety buffer closes admission before the swap's hard expiry so a
 // newly accepted vHTLC still has time to propagate and be reconciled.
@@ -955,6 +1004,8 @@ func (s *paySession) waitForFundedVHTLC(ctx context.Context) error {
 // immediately after restart.
 func (s *paySession) ensureFundingSubmitted(ctx context.Context,
 	allowImmediate bool) error {
+
+	s.noteVHTLC(ctx)
 
 	if s.fundingSessionID != "" {
 		if s.vhtlcOutpoint != "" && s.vhtlcAmount > 0 {
@@ -1822,9 +1873,7 @@ func (s *paySession) observeRefundOutput(ctx context.Context) (*VTXOInfo,
 // observeRefundableVHTLC records the live vHTLC while deliberately skipping
 // the pre-refund-locktime safety check used before funding and claim waiting.
 func (s *paySession) observeRefundableVHTLC(ctx context.Context) (bool, error) {
-	vtxo, err := s.client.daemon.FindLiveVTXOByPkScript(
-		ctx, s.vhtlcPkScript,
-	)
+	vtxo, err := s.client.findLiveVHTLC(ctx, s.vhtlcPkScript)
 	if err != nil {
 		if isUnregisteredScriptErr(err) && s.vhtlcOutpoint != "" &&
 			s.vhtlcAmount > 0 {
@@ -2060,9 +2109,7 @@ func (s *paySession) refundPubKey(ctx context.Context) ([]byte, error) {
 // observeLiveVHTLC records the live vHTLC outpoint when the authoritative
 // indexer has indexed the expected script.
 func (s *paySession) observeLiveVHTLC(ctx context.Context) (bool, error) {
-	vtxo, err := s.client.daemon.FindLiveVTXOByPkScript(
-		ctx, s.vhtlcPkScript,
-	)
+	vtxo, err := s.client.findLiveVHTLC(ctx, s.vhtlcPkScript)
 	if err != nil || vtxo == nil {
 		return false, err
 	}
@@ -2223,7 +2270,7 @@ func (c *SwapClient) findInSwapClaimObservation(ctx context.Context,
 		return preimage, nil, nil
 	}
 
-	vtxo, err := c.daemon.FindSpentVTXOByPkScript(ctx, pkScript)
+	vtxo, err := c.findSpentVHTLC(ctx, pkScript)
 	if err != nil {
 		return nil, nil, err
 	}

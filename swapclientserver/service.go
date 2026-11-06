@@ -165,6 +165,10 @@ func daemonWithLiveOperatorKey(daemon swaps.DaemonConn,
 	}
 }
 
+// hostedVHTLCPollInterval is how often a wallet with a hosted signer looks for
+// a funded vHTLC. A proof by its swap key can take a quorum of phones to sign.
+const hostedVHTLCPollInterval = 15 * time.Second
+
 // swapKeyDaemonConn names a separate key as the identity the swap client sees.
 type swapKeyDaemonConn struct {
 	swaps.DaemonConn
@@ -425,7 +429,7 @@ func newSwapClientService(ctx context.Context, rpcServer *waved.RPCServer,
 	}
 
 	swapClients, err := newSwapServerClients(
-		cfg, swapAddr, rpcServer.SignMailboxAuth,
+		cfg, swapAddr, rpcServer.SignSwapMailboxAuth,
 		rpcServer.SignCreditAccountAuth, clientCerts,
 	)
 	if err != nil {
@@ -483,6 +487,9 @@ func newSwapClientService(ctx context.Context, rpcServer *waved.RPCServer,
 	if rpcServer.HostedSigner() {
 		swapClient.CloseCredit()
 		swapClient.SetVHTLCKeyFamily(int32(keyfamily.OORReceive))
+		swapClient.SetVHTLCPolicyLookup(
+			arkClient, hostedVHTLCPollInterval,
+		)
 	}
 	recoveryCfg := cfg.VHTLCRecovery
 	swapClient.SetRecoveryPolicy(swaps.RecoveryPolicy{

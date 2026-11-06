@@ -185,6 +185,49 @@ func (s *Server) mailboxAuthSig(ctx context.Context,
 	return sig, nil
 }
 
+// swapMailboxAuthSig is mailboxAuthSig for a hosted signer's swap key. What it
+// signs doesn't vary with the request either, so each swap's mailbox costs a
+// group one signature however often it is pulled.
+func (s *Server) swapMailboxAuthSig(ctx context.Context,
+	recipientMailboxID string) (*schnorr.Signature, error) {
+
+	memo := "swap:" + recipientMailboxID
+
+	s.mailboxAuthSigsMu.Lock()
+	sig, ok := s.mailboxAuthSigs[memo]
+	s.mailboxAuthSigsMu.Unlock()
+
+	if ok {
+		return sig, nil
+	}
+
+	signCtx, cancel := context.WithTimeout(ctx, mailboxAuthSignTimeout)
+	defer cancel()
+
+	desc, err := s.swapKeyDesc(signCtx)
+	if err != nil {
+		return nil, err
+	}
+	sig, err = s.signSwapKeyTagged(
+		signCtx, desc,
+		serverconn.MailboxAuthMessage(desc.PubKey, recipientMailboxID),
+		[]byte(serverconn.MailboxAuthTagStr), "swap mailbox auth",
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	s.mailboxAuthSigsMu.Lock()
+	defer s.mailboxAuthSigsMu.Unlock()
+
+	if s.mailboxAuthSigs == nil {
+		s.mailboxAuthSigs = make(map[string]*schnorr.Signature, 2)
+	}
+	s.mailboxAuthSigs[memo] = sig
+
+	return sig, nil
+}
+
 // serverClientTLSCerts returns the optional client certificate used by the
 // operator to bind mailbox access to the daemon identity key.
 func (s *Server) serverClientTLSCerts() ([]tls.Certificate, error) {
