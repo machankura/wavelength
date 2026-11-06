@@ -5,6 +5,7 @@ package wavewalletdk
 import (
 	"bytes"
 	"context"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -16,6 +17,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/lightninglabs/wavelength/waverpc"
 	"github.com/stretchr/testify/require"
 )
 
@@ -88,17 +90,28 @@ func TestHostedBridge(t *testing.T) {
 		RemoteSigner: &RemoteSignerConfig{
 			Host: &bridgeHost{
 				url:    opening.SignerURL,
-				client: &http.Client{Timeout: 115 * time.Second},
+				client: &http.Client{Timeout: 58 * time.Second},
 			},
-			RequestTimeout: 110 * time.Second,
+			RequestTimeout: 55 * time.Second,
 		},
 	}
+	// How far along each family to scan on opening, which costs a signature
+	// for every key it asks about.
+	var recoveryWindow uint32
+	if window := os.Getenv("WAVELENGTH_BRIDGE_RECOVER"); window != "" {
+		parsed, err := strconv.ParseUint(window, 10, 32)
+		require.NoError(t, err)
+		recoveryWindow = uint32(parsed)
+	}
+
 	began := time.Now()
 	client, opened, err := StartWatchOnlyWallet(
 		ctx, cfg, WatchOnlyWalletRequest{
 			Manifest:       []byte(opening.Manifest),
 			AuthKeys:       []byte(opening.AuthKeys),
 			WalletPassword: []byte(opening.Password),
+			RecoverState:   recoveryWindow > 0,
+			RecoveryWindow: recoveryWindow,
 		},
 	)
 	require.NoError(t, err)
@@ -150,6 +163,35 @@ func TestHostedBridge(t *testing.T) {
 			Outpoint:    r.URL.Query().Get("outpoint"),
 			Destination: r.URL.Query().Get("destination"),
 		})
+	})
+	serve("/send-oor", func(r *http.Request) (any, error) {
+		key, err := hex.DecodeString(r.URL.Query().Get("pubkey"))
+		if err != nil {
+			return nil, err
+		}
+		sat, err := strconv.ParseInt(r.URL.Query().Get("sat"), 10, 64)
+		if err != nil {
+			return nil, err
+		}
+
+		return client.ArkRPC().SendOOR(
+			r.Context(), &waverpc.SendOORRequest{
+				Recipients: []*waverpc.Output{{
+					Destination: &waverpc.Output_Pubkey{
+						Pubkey: key,
+					},
+					AmountSat: sat,
+				}},
+				IdempotencyKey: r.URL.Query().Get("key"),
+			},
+		)
+	})
+	serve("/oor-session", func(r *http.Request) (any, error) {
+		return client.ArkRPC().GetOORSession(
+			r.Context(), &waverpc.GetOORSessionRequest{
+				SessionId: r.URL.Query().Get("id"),
+			},
+		)
 	})
 	serve("/stop", func(*http.Request) (any, error) {
 		close(stop)

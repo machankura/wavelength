@@ -834,18 +834,19 @@ func (r *RPCServer) materializeRecoveredOOREvent(ctx context.Context,
 		return fmt.Errorf("extract recipients: %w", err)
 	}
 
-	metadataMatches := make(
-		[]oor.IncomingMetadataMatch, 0, len(recipients),
+	// Only the output this event is about. A package can pay this wallet
+	// more than once, each output has an event of its own, and by the time
+	// a later one is replayed the others are owned too, with no metadata
+	// here to materialize them from.
+	eventRecipients := recipientsOfEvent(
+		recipients, event.GetRecipientPkScript(),
+		event.GetOutputIndex(),
 	)
-	for _, recipient := range recipients {
-		if !bytes.Equal(
-			recipient.PkScript, event.GetRecipientPkScript(),
-		) ||
-			recipient.OutputIndex != event.GetOutputIndex() {
 
-			continue
-		}
-
+	metadataMatches := make(
+		[]oor.IncomingMetadataMatch, 0, len(eventRecipients),
+	)
+	for _, recipient := range eventRecipients {
 		// Recovery resolves metadata for every event it replays, so
 		// this is as much of the recovery scan as the listing calls
 		// above and has to survive a shed the same way. Left
@@ -895,7 +896,7 @@ func (r *RPCServer) materializeRecoveredOOREvent(ctx context.Context,
 			SessionID:            sessionID,
 			ArkPSBT:              incoming.ArkPSBT,
 			FinalCheckpointPSBTs: incoming.FinalCheckpointPSBTs,
-			Recipients:           recipients,
+			Recipients:           eventRecipients,
 			MetadataMatches:      metadataMatches,
 			AncestorPackages:     incoming.AncestorPackages,
 		},
@@ -905,6 +906,22 @@ func (r *RPCServer) materializeRecoveredOOREvent(ctx context.Context,
 	}
 
 	return nil
+}
+
+// recipientsOfEvent returns the recipients an indexer event is about.
+func recipientsOfEvent(recipients []oor.ArkRecipientOutput, pkScript []byte,
+	outputIndex uint32) []oor.ArkRecipientOutput {
+
+	matched := make([]oor.ArkRecipientOutput, 0, 1)
+	for _, recipient := range recipients {
+		if bytes.Equal(recipient.PkScript, pkScript) &&
+			recipient.OutputIndex == outputIndex {
+
+			matched = append(matched, recipient)
+		}
+	}
+
+	return matched
 }
 
 func errorsIsNoRows(err error) bool {
