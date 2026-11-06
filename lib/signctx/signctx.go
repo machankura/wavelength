@@ -114,6 +114,37 @@ func Record(kind Kind, id string, keys [][32]byte, material any) {
 	}
 }
 
+// Amend replaces the material of the note recorded under key, under every key
+// that note answers for. It reports whether there was such a note. A material
+// that cannot be encoded leaves the note as it was.
+func Amend(key [32]byte, material any) bool {
+	if !Enabled() {
+		return false
+	}
+
+	raw, err := json.Marshal(material)
+	if err != nil {
+		return false
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+
+	old, ok := notes[key]
+	if !ok {
+		return false
+	}
+
+	amended := &Note{Kind: old.Kind, ID: old.ID, Material: raw}
+	for k, note := range notes {
+		if note == old {
+			notes[k] = amended
+		}
+	}
+
+	return true
+}
+
 // Lookup returns the note recorded under key.
 func Lookup(key [32]byte) (*Note, bool) {
 	mu.Lock()

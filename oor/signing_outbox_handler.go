@@ -131,6 +131,8 @@ func (h *SigningOutboxHandler) handleCheckpointSignatures(ctx context.Context,
 		return nil, fmt.Errorf("signer is required")
 	}
 
+	recordSigningNote(msg.ArkPSBT, msg.CoSignedCheckpointPSBTs)
+
 	err := SignCheckpointPSBTs(
 		h.Signer, msg.TransferInputs, msg.CoSignedCheckpointPSBTs,
 	)

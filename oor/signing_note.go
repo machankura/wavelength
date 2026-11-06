@@ -4,8 +4,10 @@ import (
 	"bytes"
 	"encoding/hex"
 
+	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/psbt/v2"
 	"github.com/lightninglabs/wavelength/lib/signctx"
+	oortx "github.com/lightninglabs/wavelength/lib/tx/oor"
 )
 
 // notedOutput is an output a noted transaction spends.
@@ -14,10 +16,19 @@ type notedOutput struct {
 	PkScript string `json:"pk_script"`
 }
 
-// notedTx is one transaction of a transfer and what it spends.
+// notedSig is a BIP-340 signature an input already carries. Whose it is, a
+// signer finds out by verifying it against the key it expects.
+type notedSig struct {
+	Input     int    `json:"input"`
+	Signature string `json:"signature"`
+}
+
+// notedTx is one transaction of a transfer, what it spends, and the signatures
+// it has so far.
 type notedTx struct {
 	Tx       string        `json:"tx"`
 	PrevOuts []notedOutput `json:"prev_outs"`
+	Sigs     []notedSig    `json:"sigs,omitempty"`
 }
 
 // notedPackage is what a signer that judges its requests is told about a
@@ -36,7 +47,7 @@ func notedTxOf(packet *psbt.Packet) (notedTx, bool) {
 	}
 
 	noted := notedTx{Tx: hex.EncodeToString(raw.Bytes())}
-	for _, in := range packet.Inputs {
+	for i, in := range packet.Inputs {
 		if in.WitnessUtxo == nil {
 			return notedTx{}, false
 		}
@@ -44,6 +55,29 @@ func notedTxOf(packet *psbt.Packet) (notedTx, bool) {
 			Value:    in.WitnessUtxo.Value,
 			PkScript: hex.EncodeToString(in.WitnessUtxo.PkScript),
 		})
+
+		for _, sig := range in.TaprootScriptSpendSig {
+			noted.Sigs = append(noted.Sigs, notedSig{
+				Input:     i,
+				Signature: hex.EncodeToString(sig.Signature),
+			})
+		}
+
+		// An input the operator already finalized carries its
+		// signatures in the witness instead.
+		witness, err := oortx.BuildTaprootWitness(in)
+		if err != nil {
+			continue
+		}
+		for _, item := range witness {
+			if len(item) != schnorr.SignatureSize {
+				continue
+			}
+			noted.Sigs = append(noted.Sigs, notedSig{
+				Input:     i,
+				Signature: hex.EncodeToString(item),
+			})
+		}
 	}
 
 	return noted, true
@@ -51,7 +85,10 @@ func notedTxOf(packet *psbt.Packet) (notedTx, bool) {
 
 // recordSigningNote notes a transfer's package under each of its transactions,
 // so that signing any of them finds it. A package that will not render is left
-// unnoted, which leaves a signer that wants a note refusing it.
+// unnoted, which leaves a signer that wants a note refusing it. It is noted again
+// once the operator has co-signed, since a signature on a checkpoint hands the
+// VTXO over, and a signer wants to see first that the Ark transaction can spend
+// what it hands over to.
 func recordSigningNote(ark *psbt.Packet, checkpoints []*psbt.Packet) {
 	if !signctx.Enabled() {
 		return

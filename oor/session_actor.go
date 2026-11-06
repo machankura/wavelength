@@ -817,6 +817,8 @@ func (b *sessionBehavior) driveOutboxEvents(ctx context.Context,
 				),
 			)
 
+			recordSigningNote(m.ArkPSBT, m.CoSignedCheckpointPSBTs)
+
 			err := SignCheckpointPSBTs(
 				b.cfg.Signer, m.TransferInputs,
 				m.CoSignedCheckpointPSBTs,

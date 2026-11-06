@@ -3,9 +3,12 @@ package round
 import (
 	"bytes"
 	"encoding/hex"
+	"encoding/json"
 
 	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/btcutil/v2"
+	"github.com/btcsuite/btcd/chainhash/v2"
 	"github.com/btcsuite/btcd/psbt/v2"
 	"github.com/btcsuite/btcd/txscript/v2"
 	"github.com/btcsuite/btcd/wire/v2"
@@ -27,6 +30,11 @@ type notedNode struct {
 	Tx        string   `json:"tx"`
 	Digest    string   `json:"digest"`
 	CoSigners []string `json:"co_signers"`
+
+	// Signature is the node's aggregated signature, once there is one. A
+	// signer that gives anything up for a round wants to see these first,
+	// since an unsigned tree is a VTXO its owner can't exit with.
+	Signature string `json:"signature,omitempty"`
 }
 
 // notedTree is a tree path, its batch output and its sweep root.
@@ -223,6 +231,52 @@ func connectorPathOf(commitment *wire.MsgTx, operatorKey *btcec.PublicKey,
 	}
 
 	return rendered, true
+}
+
+// recordSignedTrees adds a round's aggregated tree signatures to its note, so
+// that a request made after tree signing shows them. A round with no note stays
+// that way, which leaves a signer that wants one refusing the request.
+func recordSignedTrees(commitment chainhash.Hash,
+	sigs map[tree.TxID]*schnorr.Signature) {
+
+	if !signctx.Enabled() {
+		return
+	}
+
+	note, ok := signctx.Lookup(commitment)
+	if !ok {
+		return
+	}
+
+	var noted notedRound
+	if err := json.Unmarshal(note.Material, &noted); err != nil {
+		return
+	}
+
+	for i := range noted.Trees {
+		for j := range noted.Trees[i].Nodes {
+			node := &noted.Trees[i].Nodes[j]
+
+			raw, err := hex.DecodeString(node.Tx)
+			if err != nil {
+				return
+			}
+
+			var tx wire.MsgTx
+			err = tx.Deserialize(bytes.NewReader(raw))
+			if err != nil {
+				return
+			}
+
+			if sig, ok := sigs[tx.TxHash()]; ok && sig != nil {
+				node.Signature = hex.EncodeToString(
+					sig.Serialize(),
+				)
+			}
+		}
+	}
+
+	signctx.Amend(commitment, noted)
 }
 
 // recordSigningNote notes a validated round under its commitment transaction,

@@ -54,3 +54,26 @@ func TestRecordDropsUnencodable(t *testing.T) {
 	_, ok := Lookup(key)
 	require.False(t, ok)
 }
+
+// TestAmendReplacesEveryKey proves a note amended under one of its keys reads
+// the same under all of them, and that one nobody recorded stays absent.
+func TestAmendReplacesEveryKey(t *testing.T) {
+	t.Cleanup(Disable)
+	Enable()
+
+	first, second := [32]byte{1}, [32]byte{2}
+	Record(KindRound, "r", [][32]byte{first, second}, "before")
+	require.True(t, Amend(first, "after"))
+
+	for _, key := range [][32]byte{first, second} {
+		note, ok := Lookup(key)
+		require.True(t, ok)
+		require.Equal(t, KindRound, note.Kind)
+		require.Equal(t, "r", note.ID)
+		require.JSONEq(t, `"after"`, string(note.Material))
+	}
+
+	require.False(t, Amend([32]byte{3}, "nothing"))
+	_, ok := Lookup([32]byte{3})
+	require.False(t, ok)
+}

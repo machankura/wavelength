@@ -7,12 +7,14 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"testing"
 	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
+	"github.com/btcsuite/btcd/btcec/v2/schnorr/musig2"
 	"github.com/btcsuite/btcd/btcutil/v2"
 	"github.com/btcsuite/btcd/btcutil/v2/hdkeychain"
 	"github.com/btcsuite/btcd/chaincfg/v2"
@@ -56,24 +58,85 @@ func (h *recordingHost) Handle(raw []byte) ([]byte, error) {
 	})
 }
 
+// aggregateFixtureSig is what a tree node's cosigners would make between them,
+// and what a signer has to be able to verify before it gives anything up.
+func aggregateFixtureSig(t *testing.T, cosigners []*btcec.PublicKey,
+	privs map[string]*btcec.PrivateKey, digest, root []byte) *schnorr.Signature {
+
+	t.Helper()
+
+	sessions := make([]*musig2.Session, 0, len(cosigners))
+	for _, key := range cosigners {
+		priv := privs[hex.EncodeToString(key.SerializeCompressed())]
+		require.NotNil(t, priv)
+
+		// A context sorts its signers in place.
+		signer, err := musig2.NewContext(
+			priv, true, musig2.WithKnownSigners(
+				slices.Clone(cosigners),
+			),
+			musig2.WithTaprootTweakCtx(root),
+		)
+		require.NoError(t, err)
+
+		// Fixed nonces, so that the file a Kotlin test reads only
+		// changes when what it describes does.
+		seed := chainhash.HashB(append(
+			key.SerializeCompressed(), digest...,
+		))
+		nonces, err := musig2.GenNonces(
+			musig2.WithPublicKey(key),
+			musig2.WithCustomRand(bytes.NewReader(seed)),
+		)
+		require.NoError(t, err)
+		session, err := signer.NewSession(
+			musig2.WithPreGeneratedNonce(nonces),
+		)
+		require.NoError(t, err)
+		sessions = append(sessions, session)
+	}
+	for i, session := range sessions {
+		for j, other := range sessions {
+			if i == j {
+				continue
+			}
+			_, err := session.RegisterPubNonce(other.PublicNonce())
+			require.NoError(t, err)
+		}
+	}
+
+	var message [32]byte
+	copy(message[:], digest)
+	for i, session := range sessions {
+		partial, err := session.Sign(message)
+		require.NoError(t, err)
+		if i > 0 {
+			_, err = sessions[0].CombineSig(partial)
+			require.NoError(t, err)
+		}
+	}
+
+	return sessions[0].FinalSig()
+}
+
 // policyFixtures is the JSON a Kotlin signing policy is tested against.
 type policyFixtures struct {
-	Operator    string          `json:"operator"`
-	SweepKey    string          `json:"sweep_key"`
-	SweepDelay  uint32          `json:"sweep_delay"`
-	ExitDelay   uint32          `json:"exit_delay"`
-	TreeKey     string          `json:"tree_key"`
-	Onchain     string          `json:"onchain_script"`
-	OwnerKey    string          `json:"owner_key"`
-	VTXOScript  string          `json:"vtxo_script"`
-	TreeSign    json.RawMessage `json:"tree_sign"`
-	Forfeit     json.RawMessage `json:"forfeit"`
-	Boarding    json.RawMessage `json:"boarding"`
-	JoinProof   json.RawMessage `json:"join_proof"`
-	ExitSweep   json.RawMessage `json:"exit_sweep"`
-	OORArk      json.RawMessage `json:"oor_ark"`
-	OORPoint    json.RawMessage `json:"oor_checkpoint"`
-	IndexerMsg  json.RawMessage `json:"indexer_message"`
+	Operator   string          `json:"operator"`
+	SweepKey   string          `json:"sweep_key"`
+	SweepDelay uint32          `json:"sweep_delay"`
+	ExitDelay  uint32          `json:"exit_delay"`
+	TreeKey    string          `json:"tree_key"`
+	Onchain    string          `json:"onchain_script"`
+	OwnerKey   string          `json:"owner_key"`
+	VTXOScript string          `json:"vtxo_script"`
+	TreeSign   json.RawMessage `json:"tree_sign"`
+	Forfeit    json.RawMessage `json:"forfeit"`
+	Boarding   json.RawMessage `json:"boarding"`
+	JoinProof  json.RawMessage `json:"join_proof"`
+	ExitSweep  json.RawMessage `json:"exit_sweep"`
+	OORArk     json.RawMessage `json:"oor_ark"`
+	OORPoint   json.RawMessage `json:"oor_checkpoint"`
+	IndexerMsg json.RawMessage `json:"indexer_message"`
 }
 
 // fixtureKeys derives the group's keys from the pinned manifest.
@@ -336,6 +399,29 @@ func TestGroupPolicyFixtures(t *testing.T) {
 	require.NoError(t, err)
 	treeSign := take()
 
+	// Everything after this comes once the tree has been signed.
+	treePrivs := make(map[string]*btcec.PrivateKey)
+	for _, b := range []byte{0x31, 0x32, 0x33} {
+		priv := seeded(b)
+		treePrivs[hex.EncodeToString(
+			priv.PubKey().SerializeCompressed(),
+		)] = priv
+	}
+	treeSigs := make(map[tree.TxID]*schnorr.Signature)
+	for node := range path.Root.NodesIter() {
+		nodeDigest, err := node.SigHash(fetcher)
+		require.NoError(t, err)
+		nodeTx, err := node.ToTx()
+		require.NoError(t, err)
+		treeSigs[nodeTx.TxHash()] = aggregateFixtureSig(
+			t, node.CoSigners, treePrivs, nodeDigest,
+			path.SweepTapscriptRoot,
+		)
+	}
+	require.NoError(t, path.SubmitTreeSigs(treeSigs))
+	require.NoError(t, path.VerifySigned())
+	recordSignedTrees(commitment.TxHash(), treeSigs)
+
 	// A forfeit of an old VTXO of the group's over that connector.
 	oldOwner := keys.family(44, 3)
 	oldVTXOKey, err := arkscript.VTXOTapKey(oldOwner, operator, exitDelay)
@@ -467,16 +553,40 @@ func TestGroupPolicyFixtures(t *testing.T) {
 		},
 	)
 
-	oorPoint := signPacket(signingPacket(
-		t, checkpointArtifact.PSBT.UnsignedTx.Copy(),
-		[]*wire.TxOut{{Value: 40_000, PkScript: oldScript}}, 0, 44, 3,
-		oldOwner, collab, oldSpend,
-	))
 	arkPrev := []*wire.TxOut{checkpointOutput.Output}
 	checkpointSpend := oldSpend
 	oorArk := signPacket(signingPacket(
 		t, arkPacket.UnsignedTx.Copy(), arkPrev, 0, 44, 3, oldOwner,
 		collab, checkpointSpend,
+	))
+
+	// The operator co-signs the Ark transaction, and only then is a
+	// checkpoint asked for.
+	arkFetcher := txscript.NewCannedPrevOutputFetcher(
+		checkpointOutput.Output.PkScript, checkpointOutput.Output.Value,
+	)
+	operatorDigest, err := txscript.CalcTapscriptSignaturehash(
+		txscript.NewTxSigHashes(arkPacket.UnsignedTx, arkFetcher),
+		txscript.SigHashDefault, arkPacket.UnsignedTx, 0, arkFetcher,
+		txscript.NewBaseTapLeaf(collab),
+	)
+	require.NoError(t, err)
+	operatorSig, err := schnorr.Sign(seeded(0x31), operatorDigest)
+	require.NoError(t, err)
+	coSignedArk := notedArk(arkPacket)
+	coSignedArk.Sigs = []notedRoundSig{{
+		Input:     0,
+		Signature: hex.EncodeToString(operatorSig.Serialize()),
+	}}
+	signctx.Amend(arkTxid, map[string]any{
+		"ark":         coSignedArk,
+		"checkpoints": []notedRoundTx{notedArk(checkpointArtifact.PSBT)},
+	})
+
+	oorPoint := signPacket(signingPacket(
+		t, checkpointArtifact.PSBT.UnsignedTx.Copy(),
+		[]*wire.TxOut{{Value: 40_000, PkScript: oldScript}}, 0, 44, 3,
+		oldOwner, collab, oldSpend,
 	))
 
 	// An indexer proof under a VTXO owner key.
@@ -522,8 +632,15 @@ func TestGroupPolicyFixtures(t *testing.T) {
 	require.JSONEq(t, string(want), string(rendered))
 }
 
+// notedRoundSig mirrors a signature the oor package notes on a transfer.
+type notedRoundSig struct {
+	Input     int    `json:"input"`
+	Signature string `json:"signature"`
+}
+
 // notedRoundTx mirrors the shape the oor package notes a transfer in.
 type notedRoundTx struct {
-	Tx       string        `json:"tx"`
-	PrevOuts []notedOutput `json:"prev_outs"`
+	Tx       string          `json:"tx"`
+	PrevOuts []notedOutput   `json:"prev_outs"`
+	Sigs     []notedRoundSig `json:"sigs,omitempty"`
 }
